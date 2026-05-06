@@ -9,6 +9,7 @@ from app.schemas.trusted_search import (
     TrustedSearchResponse,
 )
 from app.services.claim_decomposer import ClaimDraft, decompose_claims
+from app.services.page_fetcher import PageFetcher, build_fallback_http_client
 from app.services.question_classifier import classify_question, risk_for_question_type
 from app.services.search_adapter import SearchAdapter, StaticSearchAdapter
 from app.services.search_planner import build_search_plan
@@ -25,6 +26,7 @@ async def trusted_search(request: TrustedSearchRequest) -> TrustedSearchResponse
 def build_mock_response(
     request: TrustedSearchRequest,
     search_adapter: SearchAdapter | None = None,
+    page_fetcher: PageFetcher | None = None,
 ) -> TrustedSearchResponse:
     classified = classify_question(request.query)
     question_type = classified.question_type
@@ -43,6 +45,8 @@ def build_mock_response(
     adapter = search_adapter or StaticSearchAdapter()
     adapter_response = adapter.search(request.query, max_results=request.max_sources)
     sources = search_results_to_sources(adapter_response.results)
+    fetcher = page_fetcher or _build_stage_fetcher()
+    page_fetches = [fetcher.fetch_source(source) for source in sources]
     constraints = _build_mock_constraints()
 
     return TrustedSearchResponse(
@@ -54,9 +58,14 @@ def build_mock_response(
         claims=[_build_mock_claim(claim) for claim in claim_drafts],
         search_plan=search_plan,
         sources=sources,
+        page_fetches=page_fetches,
         conflicts=[],
         answer_constraints=constraints,
     )
+
+
+def _build_stage_fetcher() -> PageFetcher:
+    return PageFetcher(http_client=build_fallback_http_client(), timeout_seconds=0.1)
 
 
 def _build_mock_claim(claim: ClaimDraft) -> ClaimSchema:

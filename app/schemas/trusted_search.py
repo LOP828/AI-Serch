@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.core.exceptions import ErrorResponse
 from app.schemas.claim import ClaimSchema
 from app.schemas.constraints import AnswerConstraintsSchema
+from app.schemas.page import PageFetchResultSchema
 from app.schemas.search import SearchPlanItemSchema
 from app.schemas.source import SourceSchema
 
@@ -68,6 +69,7 @@ class TrustedSearchResponse(BaseModel):
     claims: list[ClaimSchema]
     search_plan: list[SearchPlanItemSchema] = Field(default_factory=list)
     sources: list[SourceSchema]
+    page_fetches: list[PageFetchResultSchema] = Field(default_factory=list)
     conflicts: list[dict[str, Any]] = Field(default_factory=list)
     answer_constraints: AnswerConstraintsSchema
 

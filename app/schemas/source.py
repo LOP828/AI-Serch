@@ -21,6 +21,8 @@ class SourceType(StrEnum):
 
 class FetchStatus(StrEnum):
     SUCCESS = "success"
+    FALLBACK = "fallback"
+    FAILED = "failed"
     FALLBACK_SNIPPET = "fallback_snippet"
     TIMEOUT = "timeout"
     HTTP_ERROR = "http_error"
