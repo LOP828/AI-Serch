@@ -6,10 +6,11 @@ from app.schemas.evidence import EvidenceSchema
 from app.schemas.source import SourceSchema
 from app.schemas.trusted_search import (
     QuestionType,
-    RiskLevel,
     TrustedSearchRequest,
     TrustedSearchResponse,
 )
+from app.services.claim_decomposer import ClaimDraft, decompose_claims
+from app.services.question_classifier import classify_question, risk_for_question_type
 
 router = APIRouter(prefix="/api/v1", tags=["trusted-search"])
 
@@ -20,15 +21,50 @@ async def trusted_search(request: TrustedSearchRequest) -> TrustedSearchResponse
 
 
 def build_mock_response(request: TrustedSearchRequest) -> TrustedSearchResponse:
-    question_type = (
-        QuestionType.AI_MODEL_INFO
-        if request.question_type == QuestionType.AUTO
-        else request.question_type
+    classified = classify_question(request.query)
+    question_type = classified.question_type
+    risk_level = classified.risk_level
+    if request.question_type != QuestionType.AUTO:
+        question_type = request.question_type
+        risk_level = risk_for_question_type(question_type)
+
+    claim_drafts = decompose_claims(request.query, question_type)
+    source = _build_mock_source()
+    constraints = _build_mock_constraints()
+
+    return TrustedSearchResponse(
+        query=request.query,
+        question_type=question_type,
+        risk_level=risk_level,
+        overall_status="uncertain",
+        overall_confidence=0.63,
+        claims=[_build_mock_claim(claim) for claim in claim_drafts],
+        sources=[source],
+        conflicts=[],
+        answer_constraints=constraints,
     )
 
-    evidence = EvidenceSchema(
+
+def _build_mock_claim(claim: ClaimDraft) -> ClaimSchema:
+    evidence = _build_mock_evidence(claim.claim_id)
+    return ClaimSchema(
+        claim_id=claim.claim_id,
+        claim_text=claim.claim_text,
+        claim_type=claim.claim_type,
+        status="uncertain",
+        confidence=0.63,
+        reason=(
+            "This is a schema-only mock response; no live search or evidence "
+            "verification has run."
+        ),
+        evidence=[evidence],
+    )
+
+
+def _build_mock_evidence(claim_id: str) -> EvidenceSchema:
+    return EvidenceSchema(
         evidence_id="e1",
-        claim_id="c1",
+        claim_id=claim_id,
         source_id="s1",
         evidence_text=(
             "Mock evidence: a model card page is available, but this stage does not "
@@ -51,19 +87,10 @@ def build_mock_response(request: TrustedSearchRequest) -> TrustedSearchResponse:
             "final_score": 0.63,
         },
     )
-    claim = ClaimSchema(
-        claim_id="c1",
-        claim_text="MiroThinker 1.7 是否存在公开发布页面",
-        claim_type="existence",
-        status="uncertain",
-        confidence=0.63,
-        reason=(
-            "This is a schema-only mock response; no live search or evidence "
-            "verification has run."
-        ),
-        evidence=[evidence],
-    )
-    source = SourceSchema(
+
+
+def _build_mock_source() -> SourceSchema:
+    return SourceSchema(
         source_id="s1",
         title="Mock MiroThinker-1.7 model card",
         url="https://huggingface.co/example/mirothinker-1.7",
@@ -77,7 +104,10 @@ def build_mock_response(request: TrustedSearchRequest) -> TrustedSearchResponse:
         fetched_at=None,
         fetch_status="not_fetched",
     )
-    constraints = AnswerConstraintsSchema(
+
+
+def _build_mock_constraints() -> AnswerConstraintsSchema:
+    return AnswerConstraintsSchema(
         can_answer_confidently=False,
         must_disclose_uncertainty=True,
         must_cite_sources=True,
@@ -91,16 +121,4 @@ def build_mock_response(request: TrustedSearchRequest) -> TrustedSearchResponse:
             "已经完全开源",
             "官方已经确认",
         ],
-    )
-
-    return TrustedSearchResponse(
-        query=request.query,
-        question_type=question_type,
-        risk_level=RiskLevel.MEDIUM,
-        overall_status="uncertain",
-        overall_confidence=0.63,
-        claims=[claim],
-        sources=[source],
-        conflicts=[],
-        answer_constraints=constraints,
     )
