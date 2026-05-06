@@ -11,6 +11,7 @@ from app.schemas.trusted_search import (
 )
 from app.services.claim_decomposer import ClaimDraft, decompose_claims
 from app.services.question_classifier import classify_question, risk_for_question_type
+from app.services.search_planner import build_search_plan
 
 router = APIRouter(prefix="/api/v1", tags=["trusted-search"])
 
@@ -29,6 +30,12 @@ def build_mock_response(request: TrustedSearchRequest) -> TrustedSearchResponse:
         risk_level = risk_for_question_type(question_type)
 
     claim_drafts = decompose_claims(request.query, question_type)
+    search_plan = build_search_plan(
+        query=request.query,
+        question_type=question_type,
+        claims=claim_drafts,
+        strictness=request.strictness,
+    )
     source = _build_mock_source()
     constraints = _build_mock_constraints()
 
@@ -39,6 +46,7 @@ def build_mock_response(request: TrustedSearchRequest) -> TrustedSearchResponse:
         overall_status="uncertain",
         overall_confidence=0.63,
         claims=[_build_mock_claim(claim) for claim in claim_drafts],
+        search_plan=search_plan,
         sources=[source],
         conflicts=[],
         answer_constraints=constraints,

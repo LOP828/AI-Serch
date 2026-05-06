@@ -53,6 +53,7 @@ def test_trusted_search_response_contains_required_fields() -> None:
         "overall_status",
         "overall_confidence",
         "claims",
+        "search_plan",
         "sources",
         "conflicts",
         "answer_constraints",
@@ -108,6 +109,21 @@ def test_trusted_search_uses_classifier_and_decomposer() -> None:
         "MiroThinker 1.7 的许可证是否允许商用",
         "MiroThinker 1.7 是否能严格称为开源模型",
     ]
+
+
+def test_trusted_search_returns_claims_and_search_plan() -> None:
+    response = client.post(
+        "/api/v1/trusted-search",
+        json={"query": "MiroThinker 1.7 是不是开源模型？"},
+    )
+
+    body = response.json()
+    assert len(body["claims"]) == 6
+    assert len(body["search_plan"]) == 6
+    assert {item["claim_id"] for item in body["search_plan"]} == {
+        claim["claim_id"] for claim in body["claims"]
+    }
+    assert all(item["queries"] for item in body["search_plan"])
 
 
 def test_trusted_search_rejects_empty_query() -> None:

@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.core.exceptions import ErrorResponse
 from app.schemas.claim import ClaimSchema
 from app.schemas.constraints import AnswerConstraintsSchema
+from app.schemas.search import SearchPlanItemSchema
 from app.schemas.source import SourceSchema
 
 
@@ -65,6 +66,7 @@ class TrustedSearchResponse(BaseModel):
     overall_status: OverallStatus
     overall_confidence: float = Field(ge=0.0, le=1.0)
     claims: list[ClaimSchema]
+    search_plan: list[SearchPlanItemSchema] = Field(default_factory=list)
     sources: list[SourceSchema]
     conflicts: list[dict[str, Any]] = Field(default_factory=list)
     answer_constraints: AnswerConstraintsSchema
