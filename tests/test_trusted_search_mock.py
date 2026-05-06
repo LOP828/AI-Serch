@@ -83,13 +83,16 @@ def test_trusted_search_response_contains_required_fields() -> None:
 
     evidence = claim["evidence"][0]
     assert {
+        "claim_id",
+        "source_id",
         "evidence_text",
         "support_type",
         "relevance_score",
         "final_score",
         "score_breakdown",
     }.issubset(evidence)
-    assert 0.0 <= evidence["final_score"] <= 1.0
+    assert evidence["final_score"] is None
+    assert evidence["score_breakdown"] is None
 
 
 def test_trusted_search_uses_classifier_and_decomposer() -> None:
@@ -151,6 +154,26 @@ def test_trusted_search_returns_page_fetch_fallbacks_without_crashing() -> None:
     assert len(body["page_fetches"]) == len(body["sources"])
     assert {fetch["fetch_status"] for fetch in body["page_fetches"]} == {"fallback"}
     assert all(fetch["text"] for fetch in body["page_fetches"])
+
+
+def test_trusted_search_returns_evidence_bound_to_claim_and_source() -> None:
+    response = client.post(
+        "/api/v1/trusted-search",
+        json={"query": "MiroThinker 1.7 是不是开源模型？"},
+    )
+
+    body = response.json()
+    source_ids = {source["source_id"] for source in body["sources"]}
+    claims_with_evidence = [claim for claim in body["claims"] if claim["evidence"]]
+    assert claims_with_evidence
+    for claim in claims_with_evidence:
+        for evidence in claim["evidence"]:
+            assert evidence["claim_id"] == claim["claim_id"]
+            assert evidence["source_id"] in source_ids
+            assert evidence["evidence_text"]
+            assert evidence["support_type"] in {"support", "oppose", "partial", "neutral"}
+            assert 0.0 <= evidence["relevance_score"] <= 1.0
+            assert evidence["final_score"] is None
 
 
 def test_trusted_search_rejects_empty_query() -> None:

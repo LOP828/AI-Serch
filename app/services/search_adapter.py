@@ -74,13 +74,20 @@ def _default_static_results() -> list[SearchResultSchema]:
         SearchResultSchema(
             title="MiroThinker-1.7 - Hugging Face",
             url="https://huggingface.co/example/mirothinker-1.7",
-            snippet="Mock model card result for MiroThinker 1.7.",
+            snippet=(
+                "MiroThinker 1.7 model card is released with model files and weights. "
+                "License Apache-2.0 allows commercial use. "
+                "It is described as an open-weight model."
+            ),
             published_at=None,
         ),
         SearchResultSchema(
             title="MiroThinker GitHub repository",
             url="https://github.com/example/mirothinker",
-            snippet="Mock source repository result for MiroThinker.",
+            snippet=(
+                "The GitHub repository provides source code for MiroThinker. "
+                "The training data is not disclosed."
+            ),
             published_at=None,
         ),
     ]

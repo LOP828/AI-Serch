@@ -9,6 +9,7 @@ from app.schemas.trusted_search import (
     TrustedSearchResponse,
 )
 from app.services.claim_decomposer import ClaimDraft, decompose_claims
+from app.services.evidence_extractor import extract_evidence_for_claims
 from app.services.page_fetcher import PageFetcher, build_fallback_http_client
 from app.services.question_classifier import classify_question, risk_for_question_type
 from app.services.search_adapter import SearchAdapter, StaticSearchAdapter
@@ -47,6 +48,11 @@ def build_mock_response(
     sources = search_results_to_sources(adapter_response.results)
     fetcher = page_fetcher or _build_stage_fetcher()
     page_fetches = [fetcher.fetch_source(source) for source in sources]
+    evidence_by_claim_id = extract_evidence_for_claims(
+        claims=claim_drafts,
+        page_fetches=page_fetches,
+        source_ids=[source.source_id for source in sources],
+    )
     constraints = _build_mock_constraints()
 
     return TrustedSearchResponse(
@@ -55,7 +61,10 @@ def build_mock_response(
         risk_level=risk_level,
         overall_status="uncertain",
         overall_confidence=0.63,
-        claims=[_build_mock_claim(claim) for claim in claim_drafts],
+        claims=[
+            _build_claim(claim, evidence_by_claim_id[claim.claim_id])
+            for claim in claim_drafts
+        ],
         search_plan=search_plan,
         sources=sources,
         page_fetches=page_fetches,
@@ -68,8 +77,7 @@ def _build_stage_fetcher() -> PageFetcher:
     return PageFetcher(http_client=build_fallback_http_client(), timeout_seconds=0.1)
 
 
-def _build_mock_claim(claim: ClaimDraft) -> ClaimSchema:
-    evidence = _build_mock_evidence(claim.claim_id)
+def _build_claim(claim: ClaimDraft, evidence: list[EvidenceSchema]) -> ClaimSchema:
     return ClaimSchema(
         claim_id=claim.claim_id,
         claim_text=claim.claim_text,
@@ -77,38 +85,10 @@ def _build_mock_claim(claim: ClaimDraft) -> ClaimSchema:
         status="uncertain",
         confidence=0.63,
         reason=(
-            "This is a schema-only mock response; no live search or evidence "
-            "verification has run."
+            "Rule-based evidence extraction has run, but reliability scoring and "
+            "claim aggregation have not run yet."
         ),
-        evidence=[evidence],
-    )
-
-
-def _build_mock_evidence(claim_id: str) -> EvidenceSchema:
-    return EvidenceSchema(
-        evidence_id="e1",
-        claim_id=claim_id,
-        source_id="s1",
-        evidence_text=(
-            "Mock evidence: a model card page is available, but this stage does not "
-            "verify real sources."
-        ),
-        support_type="partial",
-        relevance_score=0.72,
-        source_score=0.88,
-        primary_source_factor=1.0,
-        recency_factor=1.0,
-        cross_check_factor=1.0,
-        conflict_penalty=1.0,
-        interest_conflict_penalty=1.0,
-        final_score=0.63,
-        score_breakdown={
-            "relevance_score": 0.72,
-            "source_base_score": 0.88,
-            "primary_source_factor": 1.0,
-            "recency_factor": 1.0,
-            "final_score": 0.63,
-        },
+        evidence=evidence,
     )
 
 
