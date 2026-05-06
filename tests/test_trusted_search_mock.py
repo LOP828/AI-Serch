@@ -126,6 +126,19 @@ def test_trusted_search_returns_claims_and_search_plan() -> None:
     assert all(item["queries"] for item in body["search_plan"])
 
 
+def test_trusted_search_returns_classified_sources() -> None:
+    response = client.post(
+        "/api/v1/trusted-search",
+        json={"query": "MiroThinker 1.7 是不是开源模型？"},
+    )
+
+    body = response.json()
+    source_types = [source["source_type"] for source in body["sources"]]
+    assert source_types == ["official_model_card", "source_code_repo"]
+    assert body["sources"][0]["base_reliability"] == 0.88
+    assert body["sources"][0]["is_primary_source"] is True
+
+
 def test_trusted_search_rejects_empty_query() -> None:
     response = client.post("/api/v1/trusted-search", json={"query": ""})
 

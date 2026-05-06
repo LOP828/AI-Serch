@@ -3,7 +3,6 @@ from fastapi import APIRouter
 from app.schemas.claim import ClaimSchema
 from app.schemas.constraints import AnswerConstraintsSchema
 from app.schemas.evidence import EvidenceSchema
-from app.schemas.source import SourceSchema
 from app.schemas.trusted_search import (
     QuestionType,
     TrustedSearchRequest,
@@ -11,7 +10,9 @@ from app.schemas.trusted_search import (
 )
 from app.services.claim_decomposer import ClaimDraft, decompose_claims
 from app.services.question_classifier import classify_question, risk_for_question_type
+from app.services.search_adapter import SearchAdapter, StaticSearchAdapter
 from app.services.search_planner import build_search_plan
+from app.services.source_classifier import search_results_to_sources
 
 router = APIRouter(prefix="/api/v1", tags=["trusted-search"])
 
@@ -21,7 +22,10 @@ async def trusted_search(request: TrustedSearchRequest) -> TrustedSearchResponse
     return build_mock_response(request)
 
 
-def build_mock_response(request: TrustedSearchRequest) -> TrustedSearchResponse:
+def build_mock_response(
+    request: TrustedSearchRequest,
+    search_adapter: SearchAdapter | None = None,
+) -> TrustedSearchResponse:
     classified = classify_question(request.query)
     question_type = classified.question_type
     risk_level = classified.risk_level
@@ -36,7 +40,9 @@ def build_mock_response(request: TrustedSearchRequest) -> TrustedSearchResponse:
         claims=claim_drafts,
         strictness=request.strictness,
     )
-    source = _build_mock_source()
+    adapter = search_adapter or StaticSearchAdapter()
+    adapter_response = adapter.search(request.query, max_results=request.max_sources)
+    sources = search_results_to_sources(adapter_response.results)
     constraints = _build_mock_constraints()
 
     return TrustedSearchResponse(
@@ -47,7 +53,7 @@ def build_mock_response(request: TrustedSearchRequest) -> TrustedSearchResponse:
         overall_confidence=0.63,
         claims=[_build_mock_claim(claim) for claim in claim_drafts],
         search_plan=search_plan,
-        sources=[source],
+        sources=sources,
         conflicts=[],
         answer_constraints=constraints,
     )
@@ -94,23 +100,6 @@ def _build_mock_evidence(claim_id: str) -> EvidenceSchema:
             "recency_factor": 1.0,
             "final_score": 0.63,
         },
-    )
-
-
-def _build_mock_source() -> SourceSchema:
-    return SourceSchema(
-        source_id="s1",
-        title="Mock MiroThinker-1.7 model card",
-        url="https://huggingface.co/example/mirothinker-1.7",
-        domain="huggingface.co",
-        snippet="Mock source snippet for schema validation only.",
-        source_type="official_model_card",
-        base_reliability=0.88,
-        is_primary_source=True,
-        published_at=None,
-        author=None,
-        fetched_at=None,
-        fetch_status="not_fetched",
     )
 
 

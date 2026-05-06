@@ -1,0 +1,40 @@
+source_types:
+  official_docs:
+    base_score: 0.95
+    description: "Official documentation, product docs, and platform docs"
+  official_blog:
+    base_score: 0.90
+    description: "Official company or project blog"
+  official_model_card:
+    base_score: 0.88
+    description: "Model cards on Hugging Face, ModelScope, or similar hosts"
+  source_code_repo:
+    base_score: 0.88
+    description: "Source code repositories such as GitHub or GitLab"
+  academic_paper:
+    base_score: 0.90
+    description: "Papers, preprints, and academic publications"
+  government_docs:
+    base_score: 0.95
+    description: "Government documents, laws, and regulator publications"
+  financial_filing:
+    base_score: 0.95
+    description: "Financial filings, SEC records, and exchange disclosures"
+  mainstream_media:
+    base_score: 0.75
+    description: "Mainstream media reports"
+  expert_blog:
+    base_score: 0.65
+    description: "Expert blogs and field specialist writing"
+  community_forum:
+    base_score: 0.40
+    description: "Community forums, Reddit, Zhihu, X, and similar sources"
+  product_page:
+    base_score: 0.80
+    description: "Product pages and official store specification pages"
+  seo_content:
+    base_score: 0.20
+    description: "SEO aggregators and low-attribution reposting sites"
+  unknown:
+    base_score: 0.30
+    description: "Unknown source type"
