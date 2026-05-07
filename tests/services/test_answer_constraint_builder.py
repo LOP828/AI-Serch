@@ -50,6 +50,42 @@ def test_false_likely_requires_corrective_tone() -> None:
     assert "现有证据更倾向于反驳该说法" in constraints.required_phrases
 
 
+def test_ai_model_open_source_mixed_subclaims_use_cautious_tone() -> None:
+    constraints = _build(
+        [
+            _claim("likely", claim_type="existence"),
+            _claim("likely", claim_type="model_weights"),
+            _claim("likely", claim_type="source_code"),
+            _claim("likely", claim_type="license"),
+            _claim("false_likely", claim_type="training_data"),
+            _claim("uncertain", claim_type="interpretation"),
+        ],
+        question_type=QuestionType.AI_MODEL_INFO,
+    )
+
+    required_text = " ".join(constraints.required_phrases)
+    assert constraints.can_answer_confidently is False
+    assert constraints.must_disclose_uncertainty is True
+    assert constraints.allowed_tone == AllowedTone.CAUTIOUS
+    assert "权重开放" in required_text
+    assert "代码开放" in required_text
+    assert "训练数据开放" in required_text
+    assert "许可证" in required_text
+    assert "严格开源定义" in required_text
+
+
+def test_ai_model_false_likely_interpretation_can_use_corrective_tone() -> None:
+    constraints = _build(
+        [
+            _claim("likely", claim_type="model_weights"),
+            _claim("false_likely", claim_type="interpretation"),
+        ],
+        question_type=QuestionType.AI_MODEL_INFO,
+    )
+
+    assert constraints.allowed_tone == AllowedTone.CORRECTIVE
+
+
 def test_forbidden_phrases_are_non_empty() -> None:
     constraints = _build([_claim("likely")])
 

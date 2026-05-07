@@ -98,7 +98,7 @@ class TrustedSearchService:
             query=request.query,
             question_type=question_type,
             risk_level=risk_level,
-            overall_status=derive_overall_status(claims),
+            overall_status=derive_overall_status(claims, question_type),
             overall_confidence=derive_overall_confidence(claims),
             claims=claims,
             search_plan=search_plan,
@@ -121,7 +121,10 @@ class TrustedSearchService:
             )
 
 
-def derive_overall_status(claims: list[ClaimSchema]) -> OverallStatus:
+def derive_overall_status(
+    claims: list[ClaimSchema],
+    question_type: QuestionType | None = None,
+) -> OverallStatus:
     if not claims:
         return OverallStatus.UNSUPPORTED
 
@@ -129,6 +132,14 @@ def derive_overall_status(claims: list[ClaimSchema]) -> OverallStatus:
     if ClaimStatus.CONFLICTING in statuses:
         return OverallStatus.CONFLICTING
     if ClaimStatus.FALSE_LIKELY in statuses:
+        if _has_mixed_ai_model_open_source_claims(claims, question_type):
+            return OverallStatus.PARTIALLY_CONFIRMED
+        if _core_interpretation_status(claims) == ClaimStatus.FALSE_LIKELY:
+            return OverallStatus.LIKELY_FALSE
+        if statuses <= {ClaimStatus.FALSE_LIKELY}:
+            return OverallStatus.LIKELY_FALSE
+        if statuses & {ClaimStatus.CONFIRMED, ClaimStatus.LIKELY}:
+            return OverallStatus.PARTIALLY_CONFIRMED
         return OverallStatus.LIKELY_FALSE
     if statuses <= {ClaimStatus.CONFIRMED}:
         return OverallStatus.CONFIRMED
@@ -152,6 +163,29 @@ def derive_overall_confidence(claims: list[ClaimSchema]) -> float:
     if status == OverallStatus.CONFLICTING:
         confidence = min(confidence, 0.60)
     return max(0.0, min(round(confidence, 4), 1.0))
+
+
+def _has_mixed_ai_model_open_source_claims(
+    claims: list[ClaimSchema],
+    question_type: QuestionType | None,
+) -> bool:
+    if question_type != QuestionType.AI_MODEL_INFO:
+        return False
+    if _core_interpretation_status(claims) != ClaimStatus.UNCERTAIN:
+        return False
+
+    statuses = {claim.status for claim in claims}
+    return (
+        ClaimStatus.FALSE_LIKELY in statuses
+        and bool(statuses & {ClaimStatus.CONFIRMED, ClaimStatus.LIKELY})
+    )
+
+
+def _core_interpretation_status(claims: list[ClaimSchema]) -> ClaimStatus | None:
+    for claim in claims:
+        if claim.claim_type == "interpretation":
+            return claim.status
+    return None
 
 
 def _build_stage_fetcher() -> PageFetcher:

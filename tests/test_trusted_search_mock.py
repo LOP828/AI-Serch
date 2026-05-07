@@ -230,8 +230,13 @@ def test_trusted_search_returns_real_answer_constraints() -> None:
     assert constraints["can_answer_confidently"] is False
     assert constraints["must_disclose_uncertainty"] is True
     assert constraints["must_cite_sources"] is True
-    assert constraints["allowed_tone"] == "corrective"
-    assert "现有证据更倾向于反驳该说法" in constraints["required_phrases"]
+    assert constraints["allowed_tone"] == "cautious"
+    required_text = " ".join(constraints["required_phrases"])
+    assert "权重开放" in required_text
+    assert "代码开放" in required_text
+    assert "训练数据开放" in required_text
+    assert "许可证" in required_text
+    assert "严格开源定义" in required_text
     assert "真实搜索和证据验证尚未运行" not in constraints["required_phrases"]
     assert constraints["forbidden_phrases"]
 

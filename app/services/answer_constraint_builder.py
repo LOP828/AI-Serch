@@ -23,6 +23,12 @@ class AnswerConstraintBuilder:
         required_phrases: list[str] = []
         forbidden_phrases = list(BASE_FORBIDDEN_PHRASES)
 
+        interpretation_status = _core_interpretation_status(claims)
+        mixed_ai_model_open_source = _has_mixed_ai_model_open_source_claims(
+            question_type,
+            claims,
+        )
+
         if ClaimStatus.CONFLICTING in statuses:
             allowed_tone = AllowedTone.CONFLICT_AWARE
             can_answer_confidently = False
@@ -33,11 +39,28 @@ class AnswerConstraintBuilder:
                     "不能直接下确定结论",
                 ]
             )
-        elif ClaimStatus.FALSE_LIKELY in statuses:
+        elif (
+            ClaimStatus.FALSE_LIKELY in statuses
+            and not mixed_ai_model_open_source
+            and (
+                interpretation_status in {None, ClaimStatus.FALSE_LIKELY}
+                or statuses <= {ClaimStatus.FALSE_LIKELY}
+            )
+        ):
             allowed_tone = AllowedTone.CORRECTIVE
             can_answer_confidently = False
             must_disclose_uncertainty = True
             required_phrases.append("现有证据更倾向于反驳该说法")
+        elif ClaimStatus.FALSE_LIKELY in statuses:
+            allowed_tone = AllowedTone.CAUTIOUS
+            can_answer_confidently = False
+            must_disclose_uncertainty = True
+            required_phrases.extend(
+                [
+                    "部分信息仍无法确认",
+                    "目前证据不足以完全确认",
+                ]
+            )
         elif ClaimStatus.UNSUPPORTED in statuses:
             allowed_tone = AllowedTone.CAUTIOUS
             can_answer_confidently = False
@@ -101,6 +124,29 @@ def _needs_ai_model_open_source_disclosure(
         claim.claim_type == "interpretation" and claim.status in uncertain_statuses
         for claim in claims
     )
+
+
+def _has_mixed_ai_model_open_source_claims(
+    question_type: QuestionType,
+    claims: list[ClaimSchema],
+) -> bool:
+    if question_type != QuestionType.AI_MODEL_INFO:
+        return False
+    if _core_interpretation_status(claims) != ClaimStatus.UNCERTAIN:
+        return False
+
+    statuses = {claim.status for claim in claims}
+    return (
+        ClaimStatus.FALSE_LIKELY in statuses
+        and bool(statuses & {ClaimStatus.CONFIRMED, ClaimStatus.LIKELY})
+    )
+
+
+def _core_interpretation_status(claims: list[ClaimSchema]) -> ClaimStatus | None:
+    for claim in claims:
+        if claim.claim_type == "interpretation":
+            return claim.status
+    return None
 
 
 def _deduplicate(values: list[str]) -> list[str]:

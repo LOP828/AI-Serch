@@ -1,5 +1,5 @@
 from app.schemas.claim import ClaimSchema
-from app.schemas.trusted_search import OverallStatus
+from app.schemas.trusted_search import OverallStatus, QuestionType
 from app.services.trusted_search_service import (
     derive_overall_confidence,
     derive_overall_status,
@@ -41,11 +41,39 @@ def test_overall_confidence_averages_claim_confidence_and_clamps_conflicts() -> 
     assert derive_overall_confidence([]) == 0.0
 
 
-def _claim(status: str, confidence: float) -> ClaimSchema:
+def test_ai_model_open_source_mixed_subclaims_are_partially_confirmed() -> None:
+    claims = [
+        _claim("likely", 0.70, claim_type="existence"),
+        _claim("likely", 0.70, claim_type="model_weights"),
+        _claim("likely", 0.70, claim_type="source_code"),
+        _claim("likely", 0.70, claim_type="license"),
+        _claim("false_likely", 0.78, claim_type="training_data"),
+        _claim("uncertain", 0.60, claim_type="interpretation"),
+    ]
+
+    assert (
+        derive_overall_status(claims, QuestionType.AI_MODEL_INFO)
+        == OverallStatus.PARTIALLY_CONFIRMED
+    )
+
+
+def test_core_false_likely_interpretation_remains_likely_false() -> None:
+    claims = [
+        _claim("likely", 0.70, claim_type="model_weights"),
+        _claim("false_likely", 0.78, claim_type="interpretation"),
+    ]
+
+    assert (
+        derive_overall_status(claims, QuestionType.AI_MODEL_INFO)
+        == OverallStatus.LIKELY_FALSE
+    )
+
+
+def _claim(status: str, confidence: float, claim_type: str = "general_fact") -> ClaimSchema:
     return ClaimSchema(
         claim_id=f"c-{status}",
         claim_text="Claim text",
-        claim_type="general_fact",
+        claim_type=claim_type,
         status=status,
         confidence=confidence,
         reason="Reason.",

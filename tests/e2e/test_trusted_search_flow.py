@@ -11,7 +11,15 @@ def test_e2e_ai_model_open_source_question() -> None:
 
     _assert_complete_response(response)
     assert response.question_type == "ai_model_info"
-    assert response.overall_status == OverallStatus.LIKELY_FALSE
+    assert response.overall_status == OverallStatus.PARTIALLY_CONFIRMED
+    assert response.answer_constraints.allowed_tone == "cautious"
+    assert response.answer_constraints.must_disclose_uncertainty is True
+    required_text = " ".join(response.answer_constraints.required_phrases)
+    assert "权重开放" in required_text
+    assert "代码开放" in required_text
+    assert "训练数据开放" in required_text
+    assert "许可证" in required_text
+    assert "严格开源定义" in required_text
     assert response.overall_confidence > 0.0
 
 
