@@ -8,10 +8,12 @@ from app.schemas.trusted_search import (
     TrustedSearchRequest,
     TrustedSearchResponse,
 )
+from app.services.claim_aggregator import ClaimAggregation, ClaimAggregator
 from app.services.claim_decomposer import ClaimDraft, decompose_claims
 from app.services.evidence_extractor import extract_evidence_for_claims
 from app.services.page_fetcher import PageFetcher, build_fallback_http_client
 from app.services.question_classifier import classify_question, risk_for_question_type
+from app.services.reliability_scorer import ReliabilityScorer
 from app.services.search_adapter import SearchAdapter, StaticSearchAdapter
 from app.services.search_planner import build_search_plan
 from app.services.source_classifier import search_results_to_sources
@@ -53,6 +55,18 @@ def build_mock_response(
         page_fetches=page_fetches,
         source_ids=[source.source_id for source in sources],
     )
+    sources_by_id = {source.source_id: source for source in sources}
+    scorer = ReliabilityScorer()
+    scored_evidence_by_claim_id = {
+        claim_id: scorer.score_evidence_items(evidence_items, sources_by_id)
+        for claim_id, evidence_items in evidence_by_claim_id.items()
+    }
+    scored_evidence = [
+        evidence
+        for evidence_items in scored_evidence_by_claim_id.values()
+        for evidence in evidence_items
+    ]
+    aggregations = ClaimAggregator().aggregate(claim_drafts, scored_evidence)
     constraints = _build_mock_constraints()
 
     return TrustedSearchResponse(
@@ -62,7 +76,11 @@ def build_mock_response(
         overall_status="uncertain",
         overall_confidence=0.63,
         claims=[
-            _build_claim(claim, evidence_by_claim_id[claim.claim_id])
+            _build_claim(
+                claim=claim,
+                evidence=scored_evidence_by_claim_id[claim.claim_id],
+                aggregation=aggregations[claim.claim_id],
+            )
             for claim in claim_drafts
         ],
         search_plan=search_plan,
@@ -77,17 +95,18 @@ def _build_stage_fetcher() -> PageFetcher:
     return PageFetcher(http_client=build_fallback_http_client(), timeout_seconds=0.1)
 
 
-def _build_claim(claim: ClaimDraft, evidence: list[EvidenceSchema]) -> ClaimSchema:
+def _build_claim(
+    claim: ClaimDraft,
+    evidence: list[EvidenceSchema],
+    aggregation: ClaimAggregation,
+) -> ClaimSchema:
     return ClaimSchema(
         claim_id=claim.claim_id,
         claim_text=claim.claim_text,
         claim_type=claim.claim_type,
-        status="uncertain",
-        confidence=0.63,
-        reason=(
-            "Rule-based evidence extraction has run, but reliability scoring and "
-            "claim aggregation have not run yet."
-        ),
+        status=aggregation.status,
+        confidence=aggregation.confidence,
+        reason=aggregation.reason,
         evidence=evidence,
     )
 

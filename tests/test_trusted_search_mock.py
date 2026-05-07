@@ -91,8 +91,8 @@ def test_trusted_search_response_contains_required_fields() -> None:
         "final_score",
         "score_breakdown",
     }.issubset(evidence)
-    assert evidence["final_score"] is None
-    assert evidence["score_breakdown"] is None
+    assert 0.0 <= evidence["final_score"] <= 1.0
+    assert evidence["score_breakdown"]
 
 
 def test_trusted_search_uses_classifier_and_decomposer() -> None:
@@ -173,7 +173,50 @@ def test_trusted_search_returns_evidence_bound_to_claim_and_source() -> None:
             assert evidence["evidence_text"]
             assert evidence["support_type"] in {"support", "oppose", "partial", "neutral"}
             assert 0.0 <= evidence["relevance_score"] <= 1.0
-            assert evidence["final_score"] is None
+            assert 0.0 <= evidence["final_score"] <= 1.0
+
+
+def test_trusted_search_returns_scored_evidence() -> None:
+    response = client.post(
+        "/api/v1/trusted-search",
+        json={"query": "MiroThinker 1.7 是不是开源模型？"},
+    )
+
+    body = response.json()
+    scored = [
+        evidence
+        for claim in body["claims"]
+        for evidence in claim["evidence"]
+        if evidence["final_score"] is not None
+    ]
+    assert scored
+    for evidence in scored:
+        assert evidence["source_score"] is not None
+        assert evidence["primary_source_factor"] is not None
+        assert evidence["recency_factor"] is not None
+        assert {
+            "relevance_score",
+            "source_base_score",
+            "primary_source_factor",
+            "recency_factor",
+            "final_score",
+        }.issubset(evidence["score_breakdown"])
+
+
+def test_trusted_search_returns_aggregated_claim_statuses() -> None:
+    response = client.post(
+        "/api/v1/trusted-search",
+        json={"query": "MiroThinker 1.7 是不是开源模型？"},
+    )
+
+    body = response.json()
+    statuses = {claim["claim_id"]: claim["status"] for claim in body["claims"]}
+    assert statuses["c1"] == "likely"
+    assert statuses["c2"] == "likely"
+    assert statuses["c3"] == "likely"
+    assert statuses["c4"] == "false_likely"
+    assert statuses["c6"] == "uncertain"
+    assert all(claim["reason"] for claim in body["claims"])
 
 
 def test_trusted_search_rejects_empty_query() -> None:
