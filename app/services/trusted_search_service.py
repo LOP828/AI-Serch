@@ -1,4 +1,5 @@
 from app.schemas.claim import ClaimSchema, ClaimStatus
+from app.schemas.conflict import ConflictSchema
 from app.schemas.evidence import EvidenceSchema
 from app.schemas.page import PageFetchResultSchema
 from app.schemas.trusted_search import (
@@ -10,6 +11,7 @@ from app.schemas.trusted_search import (
 from app.services.answer_constraint_builder import AnswerConstraintBuilder
 from app.services.claim_aggregator import ClaimAggregation, ClaimAggregator
 from app.services.claim_decomposer import ClaimDraft, decompose_claims
+from app.services.conflict_detector import ConflictDetector
 from app.services.evidence_extractor import (
     EvidenceExtractorProtocol,
     RuleBasedEvidenceExtractor,
@@ -31,6 +33,7 @@ class TrustedSearchService:
         evidence_extractor: EvidenceExtractorProtocol | None = None,
         reliability_scorer: ReliabilityScorer | None = None,
         claim_aggregator: ClaimAggregator | None = None,
+        conflict_detector: ConflictDetector | None = None,
         answer_constraint_builder: AnswerConstraintBuilder | None = None,
     ) -> None:
         self._search_adapter = search_adapter or StaticSearchAdapter()
@@ -38,6 +41,7 @@ class TrustedSearchService:
         self._evidence_extractor = evidence_extractor or RuleBasedEvidenceExtractor()
         self._reliability_scorer = reliability_scorer or ReliabilityScorer()
         self._claim_aggregator = claim_aggregator or ClaimAggregator()
+        self._conflict_detector = conflict_detector or ConflictDetector()
         self._answer_constraint_builder = answer_constraint_builder or AnswerConstraintBuilder()
 
     def search(self, request: TrustedSearchRequest) -> TrustedSearchResponse:
@@ -80,12 +84,16 @@ class TrustedSearchService:
             for evidence_items in scored_evidence_by_claim_id.values()
             for evidence in evidence_items
         ]
+        conflicts = self._conflict_detector.detect(claim_drafts, scored_evidence)
         aggregations = self._claim_aggregator.aggregate(claim_drafts, scored_evidence)
         claims = [
-            _build_claim(
-                claim=claim,
-                evidence=scored_evidence_by_claim_id[claim.claim_id],
-                aggregation=aggregations[claim.claim_id],
+            _apply_conflict_to_claim(
+                claim=_build_claim(
+                    claim=claim,
+                    evidence=scored_evidence_by_claim_id[claim.claim_id],
+                    aggregation=aggregations[claim.claim_id],
+                ),
+                conflicts=conflicts,
             )
             for claim in claim_drafts
         ]
@@ -104,7 +112,7 @@ class TrustedSearchService:
             search_plan=search_plan,
             sources=sources,
             page_fetches=page_fetches,
-            conflicts=[],
+            conflicts=conflicts,
             answer_constraints=constraints,
         )
 
@@ -205,4 +213,21 @@ def _build_claim(
         confidence=aggregation.confidence,
         reason=aggregation.reason,
         evidence=evidence,
+    )
+
+
+def _apply_conflict_to_claim(
+    claim: ClaimSchema,
+    conflicts: list[ConflictSchema],
+) -> ClaimSchema:
+    claim_conflicts = [conflict for conflict in conflicts if conflict.claim_id == claim.claim_id]
+    if not claim_conflicts:
+        return claim
+    top_conflict = claim_conflicts[0]
+    return claim.model_copy(
+        update={
+            "status": ClaimStatus.CONFLICTING,
+            "confidence": min(max(claim.confidence, 0.70), 1.0),
+            "reason": top_conflict.summary,
+        }
     )

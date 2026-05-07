@@ -94,9 +94,38 @@ def test_e2e_empty_evidence_still_returns_legal_response() -> None:
     assert response.answer_constraints.must_disclose_uncertainty is True
 
 
+def test_e2e_conflict_is_exposed_in_response() -> None:
+    response = _service_with_results(
+        [
+            SearchResultSchema(
+                title="Supporting model card",
+                url="https://huggingface.co/example/conflict-model",
+                snippet="The model card says model files and weights are available.",
+                published_at=None,
+            ),
+            SearchResultSchema(
+                title="Opposing repository",
+                url="https://github.com/example/conflict-model",
+                snippet="The model weights are not publicly released.",
+                published_at=None,
+            ),
+        ]
+    ).search(TrustedSearchRequest(query="MiroThinker 1.7 是不是开源模型？"))
+
+    assert response.conflicts
+    assert response.overall_status == OverallStatus.CONFLICTING
+    assert response.answer_constraints.allowed_tone == "conflict_aware"
+    conflict = response.conflicts[0]
+    assert conflict.claim_id
+    assert conflict.supporting_evidence_ids
+    assert conflict.opposing_evidence_ids
+    assert conflict.summary
+    assert any(claim.status == "conflicting" for claim in response.claims)
+
+
 def _service_with_snippet(snippet: str) -> TrustedSearchService:
-    adapter = StaticSearchAdapter(
-        results=[
+    return _service_with_results(
+        [
             SearchResultSchema(
                 title="Mock source",
                 url="https://example.com/mock-source",
@@ -105,6 +134,10 @@ def _service_with_snippet(snippet: str) -> TrustedSearchService:
             )
         ]
     )
+
+
+def _service_with_results(results: list[SearchResultSchema]) -> TrustedSearchService:
+    adapter = StaticSearchAdapter(results=results)
     return TrustedSearchService(search_adapter=adapter)
 
 
