@@ -33,14 +33,15 @@ Critical Search Layer 不是搜索引擎，也不是大模型。
 
 ## 2. 当前开发阶段
 
-当前阶段只做第一轮基础闭环：
+当前代码已形成 REST API first 的 mock 可信搜索闭环，并提供最小 MCP wrapper：
 
 ```text
 FastAPI 骨架
 /health 接口
-/api/v1/trusted-search mock 接口
+/api/v1/trusted-search 接口
 Pydantic schemas
-pytest 基础测试
+TrustedSearchService 编排
+MCP trusted_search wrapper
 ```
 
 当前不要做：
@@ -49,9 +50,7 @@ pytest 基础测试
 不接搜索 API
 不接 LLM
 不做数据库
-不做 MCP
 不做前端
-不做复杂评分
 ```
 
 ---
@@ -111,6 +110,16 @@ uv sync
 uv run uvicorn app.main:app --reload
 ```
 
+### 启动 MCP server
+
+当前项目未引入官方 MCP SDK，提供一个无新增依赖的 stdio JSON wrapper：
+
+```bash
+uv run python -m app.mcp.server
+```
+
+它支持 `tools/list` 和 `tools/call` 风格的 JSON 行输入，也支持简化调用。
+
 ### 运行测试
 
 ```bash
@@ -159,7 +168,7 @@ GET /health
 POST /api/v1/trusted-search
 ```
 
-第一阶段只返回 mock evidence package。
+当前返回结构化 evidence package，不生成自然语言最终答案。
 
 示例请求：
 
@@ -174,7 +183,7 @@ POST /api/v1/trusted-search
 }
 ```
 
-第一阶段响应会包含固定的 mock 结构：
+响应会包含：
 
 ```text
 query
@@ -183,12 +192,55 @@ risk_level
 overall_status
 overall_confidence
 claims
+search_plan
 sources
+page_fetches
 conflicts
 answer_constraints
 ```
 
-注意：当前 mock 接口不调用搜索 API、不调用 LLM、不连接数据库，也不执行真实证据抽取或评分。
+注意：当前实现不调用真实搜索 API、不调用 LLM、不连接数据库。搜索和页面抓取默认使用 mock / fallback 行为，保证测试稳定。
+
+### MCP tool
+
+Tool name:
+
+```text
+trusted_search
+```
+
+Tool description:
+
+```text
+对用户问题进行批判性搜索分析，返回结构化 evidence package，包括 question_type、claims、search_plan、sources、page_fetches、evidence、conflicts 和 answer_constraints。
+```
+
+输入参数与 REST 请求一致：
+
+```json
+{
+  "query": "MiroThinker 1.7 是不是开源模型？",
+  "question_type": "auto",
+  "strictness": "balanced",
+  "max_sources": 8,
+  "require_primary_source": false,
+  "return_raw_evidence": true
+}
+```
+
+stdio JSON-RPC 风格调用示例：
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"trusted_search","arguments":{"query":"MiroThinker 1.7 是不是开源模型？"}}}
+```
+
+简化调用示例：
+
+```json
+{"tool":"trusted_search","arguments":{"query":"MiroThinker 1.7 是不是开源模型？"}}
+```
+
+输出为 `TrustedSearchResponse` 的 JSON-compatible dict，保留 evidence、conflicts 和 answer_constraints。
 
 完整接口契约见：
 
