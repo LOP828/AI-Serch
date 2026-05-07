@@ -1,13 +1,13 @@
 from fastapi import APIRouter
 
 from app.schemas.claim import ClaimSchema
-from app.schemas.constraints import AnswerConstraintsSchema
 from app.schemas.evidence import EvidenceSchema
 from app.schemas.trusted_search import (
     QuestionType,
     TrustedSearchRequest,
     TrustedSearchResponse,
 )
+from app.services.answer_constraint_builder import AnswerConstraintBuilder
 from app.services.claim_aggregator import ClaimAggregation, ClaimAggregator
 from app.services.claim_decomposer import ClaimDraft, decompose_claims
 from app.services.evidence_extractor import extract_evidence_for_claims
@@ -67,7 +67,19 @@ def build_mock_response(
         for evidence in evidence_items
     ]
     aggregations = ClaimAggregator().aggregate(claim_drafts, scored_evidence)
-    constraints = _build_mock_constraints()
+    claims = [
+        _build_claim(
+            claim=claim,
+            evidence=scored_evidence_by_claim_id[claim.claim_id],
+            aggregation=aggregations[claim.claim_id],
+        )
+        for claim in claim_drafts
+    ]
+    constraints = AnswerConstraintBuilder().build(
+        query=request.query,
+        question_type=question_type,
+        claims=claims,
+    )
 
     return TrustedSearchResponse(
         query=request.query,
@@ -75,14 +87,7 @@ def build_mock_response(
         risk_level=risk_level,
         overall_status="uncertain",
         overall_confidence=0.63,
-        claims=[
-            _build_claim(
-                claim=claim,
-                evidence=scored_evidence_by_claim_id[claim.claim_id],
-                aggregation=aggregations[claim.claim_id],
-            )
-            for claim in claim_drafts
-        ],
+        claims=claims,
         search_plan=search_plan,
         sources=sources,
         page_fetches=page_fetches,
@@ -108,22 +113,4 @@ def _build_claim(
         confidence=aggregation.confidence,
         reason=aggregation.reason,
         evidence=evidence,
-    )
-
-
-def _build_mock_constraints() -> AnswerConstraintsSchema:
-    return AnswerConstraintsSchema(
-        can_answer_confidently=False,
-        must_disclose_uncertainty=True,
-        must_cite_sources=True,
-        allowed_tone="cautious",
-        required_phrases=[
-            "目前只能确认这是 mock evidence package",
-            "真实搜索和证据验证尚未运行",
-        ],
-        forbidden_phrases=[
-            "毫无疑问",
-            "已经完全开源",
-            "官方已经确认",
-        ],
     )

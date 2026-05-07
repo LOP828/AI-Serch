@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field
 class AllowedTone(StrEnum):
     CONFIDENT = "confident"
     CAUTIOUS = "cautious"
+    CONFLICT_AWARE = "conflict_aware"
+    CORRECTIVE = "corrective"
     NEUTRAL = "neutral"
 
 

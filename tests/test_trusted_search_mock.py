@@ -219,6 +219,23 @@ def test_trusted_search_returns_aggregated_claim_statuses() -> None:
     assert all(claim["reason"] for claim in body["claims"])
 
 
+def test_trusted_search_returns_real_answer_constraints() -> None:
+    response = client.post(
+        "/api/v1/trusted-search",
+        json={"query": "MiroThinker 1.7 是不是开源模型？"},
+    )
+
+    body = response.json()
+    constraints = body["answer_constraints"]
+    assert constraints["can_answer_confidently"] is False
+    assert constraints["must_disclose_uncertainty"] is True
+    assert constraints["must_cite_sources"] is True
+    assert constraints["allowed_tone"] == "corrective"
+    assert "现有证据更倾向于反驳该说法" in constraints["required_phrases"]
+    assert "真实搜索和证据验证尚未运行" not in constraints["required_phrases"]
+    assert constraints["forbidden_phrases"]
+
+
 def test_trusted_search_rejects_empty_query() -> None:
     response = client.post("/api/v1/trusted-search", json={"query": ""})
 
