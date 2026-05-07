@@ -36,10 +36,12 @@ class RiskLevel(StrEnum):
 
 class OverallStatus(StrEnum):
     CONFIRMED = "confirmed"
+    MOSTLY_CONFIRMED = "mostly_confirmed"
     PARTIALLY_CONFIRMED = "partially_confirmed"
     UNCERTAIN = "uncertain"
     UNSUPPORTED = "unsupported"
     CONFLICTING = "conflicting"
+    LIKELY_FALSE = "likely_false"
     FAILED = "failed"
 
 

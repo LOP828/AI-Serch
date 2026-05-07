@@ -22,7 +22,7 @@ class StaticSearchAdapter:
         results: list[SearchResultSchema] | None = None,
         should_fail: bool = False,
     ) -> None:
-        self._results = results or _default_static_results()
+        self._results = results if results is not None else _default_static_results()
         self._should_fail = should_fail
 
     def search(self, query: str, max_results: int = 8) -> SearchAdapterResponse:
