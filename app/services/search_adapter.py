@@ -3,6 +3,7 @@ from typing import Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.schemas.search import SearchResultSchema
+from app.services.search_provider import SearchProvider
 
 
 @dataclass(frozen=True)
@@ -21,13 +22,26 @@ class StaticSearchAdapter:
         self,
         results: list[SearchResultSchema] | None = None,
         should_fail: bool = False,
+        provider: SearchProvider | None = None,
     ) -> None:
         self._results = results if results is not None else _default_static_results()
         self._should_fail = should_fail
+        self._provider = provider
 
     def search(self, query: str, max_results: int = 8) -> SearchAdapterResponse:
         if self._should_fail:
             return SearchAdapterResponse(results=[], error="mock_search_failure")
+
+        if self._provider is not None:
+            try:
+                provider_response = self._provider.search(query, max_results)
+            except Exception as exc:
+                return SearchAdapterResponse(results=[], error=f"provider_unavailable: {exc}")
+            if provider_response.error_code is not None:
+                return SearchAdapterResponse(results=[], error=provider_response.error_code.value)
+            return SearchAdapterResponse(
+                results=provider_response.normalized_results[:max_results],
+            )
 
         del query
         deduplicated = deduplicate_search_results(self._results)
