@@ -206,6 +206,22 @@ strict:
       ]
     }
   ],
+  "search_plan": [
+    {
+      "claim_id": "c1",
+      "queries": [
+        "MiroThinker 1.7 Hugging Face",
+        "MiroThinker 1.7 official"
+      ],
+      "preferred_source_types": [
+        "official_model_card",
+        "source_code_repo",
+        "academic_paper",
+        "official_docs",
+        "official_blog"
+      ]
+    }
+  ],
   "sources": [
     {
       "source_id": "s1",
@@ -220,6 +236,16 @@ strict:
       "author": null,
       "fetched_at": "2026-05-06T12:00:00Z",
       "fetch_status": "success"
+    }
+  ],
+  "page_fetches": [
+    {
+      "url": "https://huggingface.co/example/mirothinker-1.7",
+      "title": "MiroThinker-1.7 - Hugging Face",
+      "text": "Extracted page text or snippet fallback...",
+      "fetch_status": "fallback",
+      "error_message": "network error: stage 5 mock fetch disabled",
+      "fetched_at": "2026-05-06T12:00:00Z"
     }
   ],
   "conflicts": [],
@@ -255,7 +281,9 @@ strict:
 | overall_status | string | 整体状态 |
 | overall_confidence | number | 整体置信度 |
 | claims | array | 命题列表 |
+| search_plan | array | 搜索计划 |
 | sources | array | 来源列表 |
+| page_fetches | array | 页面抓取结果 |
 | conflicts | array | 冲突列表 |
 | answer_constraints | object | 回答约束 |
 
@@ -265,10 +293,12 @@ strict:
 
 ```text
 confirmed
+mostly_confirmed
 partially_confirmed
 uncertain
 unsupported
 conflicting
+likely_false
 failed
 ```
 
@@ -377,12 +407,41 @@ neutral
 ```text
 success
 fallback_snippet
+fallback
+failed
 timeout
 http_error
 parse_error
 blocked
 not_fetched
 ```
+
+当前 v0.1 `PageFetchResult` 使用 `fallback` 表示抓取失败后采用搜索摘要。`fallback_snippet` 保留为早期文档兼容值，不是当前默认返回值。
+
+## 5.10 answer_constraints.allowed_tone 枚举
+
+```text
+confident
+cautious
+conflict_aware
+corrective
+neutral
+```
+
+## 5.11 Conflict 字段
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| conflict_id | string | 冲突 ID |
+| claim_id | string | 发生冲突的命题 ID |
+| supporting_evidence_ids | array | 支持方证据 ID |
+| opposing_evidence_ids | array | 反对方证据 ID |
+| severity | string | minor / major |
+| summary | string | 冲突摘要 |
+
+## 5.12 当前 v0.1 mock MVP 说明
+
+当前实现复用 `TrustedSearchService`，REST API 与 MCP wrapper 返回同一 `TrustedSearchResponse` shape。默认使用 `StaticSearchAdapter` / `MockSearchAdapter`，页面抓取默认走 snippet fallback，不依赖真实搜索 API、真实 LLM、数据库或网络。
 
 ---
 
@@ -447,9 +506,9 @@ FastAPI 默认返回 422。
 
 ---
 
-# 7. 第一阶段 mock 要求
+# 7. v0.1 mock MVP 要求
 
-第一阶段 `/api/v1/trusted-search` 不接真实搜索，只返回 mock evidence package。
+v0.1 `/api/v1/trusted-search` 不接真实搜索 API 或真实 LLM，返回由 mock/static search 和规则模块生成的 evidence package。
 
 但 mock 必须符合最终 schema，方便后续逐步替换内部模块。
 
@@ -472,7 +531,9 @@ risk_level
 overall_status
 overall_confidence
 claims
+search_plan
 sources
+page_fetches
 conflicts
 answer_constraints
 ```

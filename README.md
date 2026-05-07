@@ -55,20 +55,20 @@ MCP trusted_search wrapper
 
 ---
 
-## 3. 推荐目录结构
+## 3. 当前目录结构
 
 ```text
 critical_search_layer/
   AGENTS.md
   README.md
-  .env.example
+  env.example
   .gitignore
   pyproject.toml
   docs/
-    01_prd.md
-    02_development_sequence.md
-    03_detailed_development_tasks.md
-    04_constraints.md
+    critical_search_layer_prd_v_0_1.md
+    critical_search_layer_development_sequence_v_0_1.md
+    critical_search_layer_detailed_development_tasks.md
+    critical_search_layer_constraints.md
     05_api_contract.md
     06_test_cases.md
   app/
@@ -87,9 +87,20 @@ critical_search_layer/
       source.py
       evidence.py
       constraints.py
+      conflict.py
+      page.py
+      search.py
     services/
+      trusted_search_service.py
     policies/
+      source_policy.yml
+    mcp/
+      server.py
+      tools.py
   tests/
+    e2e/
+    mcp/
+    services/
 ```
 
 ---
@@ -130,19 +141,19 @@ uv run pytest
 
 ## 5. 环境变量
 
-复制 `.env.example` 为 `.env`：
+复制 `env.example` 为 `.env`：
 
 ```bash
-cp .env.example .env
+cp env.example .env
 ```
 
 Windows PowerShell：
 
 ```powershell
-Copy-Item .env.example .env
+Copy-Item env.example .env
 ```
 
-真实 API Key 只能放在 `.env`，不能提交到 Git。
+当前 v0.1 MVP 只读取 `CSL_APP_NAME`、`CSL_APP_VERSION`、`CSL_ENVIRONMENT`、`CSL_LOG_LEVEL`。搜索、LLM、数据库和 Redis 配置项是未来接入预留，当前运行不会使用。真实 API Key 只能放在 `.env`，不能提交到 Git。
 
 ---
 
@@ -252,12 +263,14 @@ docs/05_api_contract.md
 
 ## 7. 测试策略
 
-第一阶段测试重点：
+当前测试重点：
 
 ```text
 /health 是否正常
 trusted-search 是否能接收 query
-trusted-search 是否返回符合 schema 的 mock JSON
+TrustedSearchService 端到端 mock 闭环是否稳定
+services 单元测试是否覆盖分类、拆解、计划、来源分类、抓取 fallback、证据抽取、评分、聚合、约束、冲突
+MCP wrapper 是否复用 TrustedSearchService
 非法输入是否返回 422
 ```
 
@@ -300,10 +313,32 @@ v0.1.12-mcp-tool
 
 ---
 
-## 10. 当前下一步
+## 10. 当前能力边界
 
-当前最应该执行：
+已完成 v0.1 mock MVP 闭环：
 
 ```text
-根据 PRD，为 Critical Search Layer 创建 FastAPI 项目骨架。先完成 /health 接口、/api/v1/trusted-search mock 接口、Pydantic schemas 和基础 pytest 测试。不要接搜索 API、不要接 LLM、不要做数据库。保证项目能启动、测试能通过、接口返回符合 PRD 的结构化 JSON。
+query
+  -> question_type
+  -> claims
+  -> search_plan
+  -> mock search_results
+  -> classified sources
+  -> page_fetches with fallback
+  -> rule-based evidence
+  -> reliability scores
+  -> claim status
+  -> conflicts
+  -> answer_constraints
+  -> evidence package JSON
+```
+
+当前仍不做：
+
+```text
+真实搜索 provider
+真实 LLM evidence extraction
+数据库/缓存
+前端
+官方 MCP SDK runtime
 ```

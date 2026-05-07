@@ -130,7 +130,7 @@ source 包含 source_id、title、url、source_type、base_reliability、is_prim
 
 ---
 
-## 3.4 trusted-search 返回 mock evidence
+## 3.4 trusted-search 返回 evidence
 
 ### 验收
 
@@ -527,7 +527,7 @@ This is a search snippet.
 ### 期望
 
 ```text
-fetch_status = fallback_snippet
+fetch_status = fallback
 text = snippet
 ```
 
@@ -967,24 +967,30 @@ uv run ruff format --check .
 
 ---
 
-# 16. 第一阶段最小验收
+# 16. v0.1 mock MVP 验收
 
-第一阶段只验收：
+当前 v0.1 mock MVP 验收：
 
 ```text
 GET /health 正常
 POST /api/v1/trusted-search 正常
-trusted-search 返回 mock evidence package
+trusted-search 返回完整 evidence package
+response 包含 claims、search_plan、sources、page_fetches、evidence、conflicts、answer_constraints
+evidence 包含 final_score 和 score_breakdown
+claims 已聚合 status/confidence/reason
+answer_constraints 由 claim status 生成，不是固定 mock
+MCP trusted_search wrapper 可调用 TrustedSearchService
 query 为空时返回 422
 pytest 通过
 ```
 
-第一阶段不验收：
+当前仍不验收：
 
 ```text
 搜索准确率
-证据抽取准确率
-评分算法合理性
-冲突检测
-MCP 调用
+真实网页覆盖率
+真实 LLM 抽取质量
+真实搜索 provider 可用性
+数据库持久化
+前端展示
 ```
