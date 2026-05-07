@@ -105,14 +105,31 @@ SearchProvider.search(request) -> SearchProviderResponse
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---:|---|
-| query | string | 是 | 单条搜索查询，由 SearchPlanner 生成或由 SearchAdapter 统一调度 |
+| query | string | 是 | 单条搜索查询；第一步必须沿用现有 `SearchAdapter.search(query, max_results)` 的 `query` 输入 |
 | max_results | integer | 是 | 最大返回结果数，默认可沿用 TrustedSearchRequest.max_sources |
 | search_mode / strictness | string | 否 | 可映射 loose / balanced / strict，控制 provider 查询深度或过滤 |
 | timeout_seconds | number | 是 | 单次 provider 请求超时 |
 | locale / language | string/null | 否 | 语言或地区偏好，例如 `en`、`zh-CN`、`us` |
 | safe_search | string/bool/null | 否 | 安全搜索策略，默认使用 provider 的保守设置 |
 
-建议输出字段：
+第一步落地边界：
+
+```text
+必须先保持现有 SearchAdapter.search(query, max_results) 抽象不变。
+SearchProvider 只作为 SearchAdapter 后面的实现细节。
+不要提前让 SearchAdapter 消费 search_plan queries。
+是否逐条执行 search_plan queries，应作为后续单独设计，不属于 SearchProvider 接口落地第一步。
+不得因此修改 TrustedSearchService 主链路。
+```
+
+建议输出分层：
+
+```text
+normalized_results: list[SearchResultSchema]
+metadata / error / debug: provider 内部状态、错误、fallback、raw payload 等调试信息
+```
+
+`normalized_results` 只能映射当前 `SearchResultSchema` 已有字段：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -120,14 +137,23 @@ SearchProvider.search(request) -> SearchProviderResponse
 | url | string | 候选来源 URL |
 | snippet | string | 搜索摘要或 provider 的内容摘要 |
 | published_at | string/null | 发布时间；provider 无法提供时为 null |
-| source / provider | string | provider 标识，例如 `tavily`、`brave`、`serpapi`、`mock` |
-| raw_provider_payload | object/null | 可选调试字段，默认不进入主业务响应 |
+
+`metadata / error / debug` 可包含但默认不进入主业务响应：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| provider | string | provider 标识，例如 `tavily`、`brave`、`serpapi`、`mock` |
+| fallback_used | bool | 是否使用 mock/static 降级结果 |
+| error | string/null | 受控错误码，可对应 `SearchAdapterResponse.error` |
+| raw_provider_payload | object/null | 裁剪后的 provider 原始响应，仅用于内部调试或测试 fixture |
+
+`provider`、`source`、`fallback`、`raw_provider_payload` 等信息属于 metadata/error/debug 层。当前业务响应结构保持稳定，`raw_provider_payload` 默认不进入 `TrustedSearchResponse` 主业务结果。
 
 Provider 层职责边界：
 
 ```text
 只负责调用搜索服务并返回候选来源。
-只做 provider response -> normalized SearchResult 的最小字段映射。
+只做 provider response -> normalized_results 的最小字段映射。
 只做 provider 错误分类、timeout、retry 和 quota/rate limit 保护。
 ```
 
@@ -154,20 +180,6 @@ answer_constraints 生成
 建议未来 `.env` 配置：
 
 ```env
-SEARCH_PROVIDER=tavily
-SEARCH_API_KEY=
-SEARCH_TIMEOUT_SECONDS=8
-SEARCH_MAX_RESULTS_DEFAULT=8
-SEARCH_RETRY_ATTEMPTS=1
-SEARCH_RETRY_BACKOFF_SECONDS=0.5
-SEARCH_RATE_LIMIT_PER_MINUTE=30
-SEARCH_MONTHLY_QUOTA=1000
-SEARCH_FALLBACK_TO_MOCK=true
-```
-
-可选兼容当前 `CSL_` 前缀风格：
-
-```env
 CSL_SEARCH_PROVIDER=tavily
 CSL_SEARCH_API_KEY=
 CSL_SEARCH_TIMEOUT_SECONDS=8
@@ -182,33 +194,35 @@ CSL_SEARCH_FALLBACK_TO_MOCK=true
 配置说明：
 
 ```text
-SEARCH_PROVIDER:
+CSL_SEARCH_PROVIDER:
   tavily / brave / serpapi / mock。默认仍建议 mock，直到真实 provider 测试完成。
 
-SEARCH_API_KEY:
+CSL_SEARCH_API_KEY:
   本地 .env 中填写。不要提交真实密钥。
 
-SEARCH_TIMEOUT_SECONDS:
+CSL_SEARCH_TIMEOUT_SECONDS:
   单次 provider HTTP 请求超时，不应无限等待。
 
-SEARCH_MAX_RESULTS_DEFAULT:
+CSL_SEARCH_MAX_RESULTS_DEFAULT:
   provider 默认返回数量，上层 request.max_sources 可以覆盖。
 
-SEARCH_RETRY_ATTEMPTS:
+CSL_SEARCH_RETRY_ATTEMPTS:
   重试次数，建议第一版为 0 或 1。
 
-SEARCH_RETRY_BACKOFF_SECONDS:
+CSL_SEARCH_RETRY_BACKOFF_SECONDS:
   重试间隔，建议指数退避或固定短退避，不做无脑重试。
 
-SEARCH_RATE_LIMIT_PER_MINUTE:
+CSL_SEARCH_RATE_LIMIT_PER_MINUTE:
   本地保护阈值，避免开发/CI 意外打满额度。
 
-SEARCH_MONTHLY_QUOTA:
+CSL_SEARCH_MONTHLY_QUOTA:
   本地预算阈值，用于保护账户额度。
 
-SEARCH_FALLBACK_TO_MOCK:
+CSL_SEARCH_FALLBACK_TO_MOCK:
   provider 不可用时是否回退 mock/static 搜索。生产环境应谨慎开启。
 ```
+
+正式实现时应沿用当前 `app/core/config.py` 的 `CSL_` 前缀约定。无前缀的 `SEARCH_PROVIDER`、`SEARCH_API_KEY` 等名称最多只能作为概念说明，不应写入 `env.example` 或配置代码，避免后续实现偏离当前配置模式。
 
 真实 API key 只能放在本地 `.env` 或部署环境的 secret manager 中，不能提交到 Git，也不能写入 README、测试 fixture 或录制样本。
 
@@ -248,18 +262,22 @@ tech_news 或 policy_legal 等时效性问题不应无限等待。
 建议在 provider wrapper 内维护轻量 quota guard：
 
 ```text
-如果本地记录显示达到 SEARCH_MONTHLY_QUOTA 的 90%，记录 warning。
-如果达到 100%，停止真实 provider 调用，返回 provider_quota_exceeded。
+v0.1/v0.2 初期只能做进程内计数或配置阈值保护。
+如果进程内计数显示达到 CSL_SEARCH_MONTHLY_QUOTA 的 90%，可记录 warning。
+如果进程内计数达到 100%，停止真实 provider 调用，返回 provider_quota_exceeded。
 如果 provider 返回 quota exceeded，也归类为 provider_quota_exceeded。
+不承诺跨进程、跨重启、跨月份的精确 quota 统计。
+精确 quota 需要未来持久化存储、外部缓存或 provider dashboard 支持。
+当前阶段不要引入数据库、Redis 或新依赖来解决 quota 问题。
 ```
 
 quota 耗尽时：
 
 ```text
-SEARCH_FALLBACK_TO_MOCK=true:
-  返回 mock/static 结果，并标记 provider=mock/static。
+CSL_SEARCH_FALLBACK_TO_MOCK=true:
+  可以返回 mock/static 降级结果，并在 SearchAdapterResponse.error、内部 debug metadata 或日志中记录 fallback 状态。
 
-SEARCH_FALLBACK_TO_MOCK=false:
+CSL_SEARCH_FALLBACK_TO_MOCK=false:
   返回空 results 和受控错误，不让 trusted-search 崩溃。
 ```
 
@@ -276,16 +294,19 @@ provider 返回 429 或本地 rate limiter 命中时：
 
 ## Fallback 到 mock/static
 
-provider 不可用时允许 fallback，但必须明确标记，避免误导为真实搜索：
+provider 不可用时允许 fallback，但必须明确记录，避免误导为真实搜索：
 
 ```text
-fallback result provider = mock 或 static
-内部 debug/search_errors 记录真实 provider 失败原因
+v0.1 兼容方案下，不把 provider/mock/static 标记塞进 SearchResultSchema 或 SourceSchema。
+fallback/provider 状态优先放在 SearchAdapterResponse.error、内部 debug metadata、日志或未来单独的 search_debug 字段中。
+当前业务响应结构保持稳定。
+内部 debug/search_errors 记录真实 provider 失败原因。
 sources 后续仍可正常 source_classifier/page_fetcher/evidence_extractor
-answer_constraints 应保持谨慎，不因 fallback 结果而伪装成真实检索
+fallback 结果可以继续被用于流程降级，但不能伪装成真实搜索结果。
+answer_constraints 应保持谨慎，不因 fallback 结果而伪装成真实检索。
 ```
 
-如果未来 SearchResultSchema 需要扩展 provider 字段，应向后兼容地新增，不删除现有字段。
+如果未来需要在主业务响应中显式暴露 provider/fallback 状态，必须作为后续 schema 扩展单独设计，不能在本阶段顺手改 `SearchResultSchema` 或 `SourceSchema`。
 
 ---
 
@@ -395,6 +416,15 @@ published_at
 
 第一版不要修改现有 schema。Provider 私有字段应留在 adapter 内部或 debug/raw payload 中。
 
+Provider 层输出必须分成两层：
+
+```text
+normalized_results: list[SearchResultSchema]
+metadata / error / debug
+```
+
+当前 `normalized_results` 只映射 `title`、`url`、`snippet`、`published_at`。`provider`、`source`、`fallback`、`raw_provider_payload` 等信息属于 metadata/error/debug 层，不进入 `SearchResultSchema` 或 `SourceSchema`。`raw_provider_payload` 默认不进入 `TrustedSearchResponse` 主业务结果。
+
 ## Tavily 映射
 
 Tavily search results 常见字段：
@@ -502,6 +532,15 @@ published_at 缺失或无法解析时统一置为 null。
 
 真实 SearchProvider 未来应作为 SearchAdapter 后面的实现替换点。
 
+下一阶段落地 `SearchProvider` 抽象时，必须先保持现有调用关系不变：
+
+```text
+TrustedSearchService 仍调用 SearchAdapter.search(request.query, max_results=request.max_sources)
+SearchAdapter 内部再选择 mock/static 或真实 SearchProvider 实现
+```
+
+当前 `TrustedSearchService` 虽然生成 `search_plan`，实际搜索调用仍以原始 `request.query` 为输入。不要在 SearchProvider 接口落地第一步提前改成逐条消费 `search_plan` queries。是否逐条执行 search plan、如何合并多条查询结果、如何控制多 claim 查询成本，应作为后续单独设计。
+
 建议层次：
 
 ```text
@@ -530,6 +569,8 @@ query
 ```
 
 真实 provider 接入后，`TrustedSearchService` 仍只依赖 `SearchAdapter` 协议。provider 的成功、失败、fallback 都应在 adapter/provider 层收敛为 normalized results 和受控错误。
+
+因此，本阶段和下一阶段的接口准备不得修改 `TrustedSearchService` 主链路，也不得借 provider 抽象落地顺手改变 schema 或业务响应结构。
 
 ---
 
