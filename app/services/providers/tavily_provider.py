@@ -1,5 +1,9 @@
+import json as jsonlib
 from collections.abc import Callable, Mapping
+from json import JSONDecodeError
 from typing import Any
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 from app.schemas.search import SearchResultSchema
 from app.services.search_provider import (
@@ -39,16 +43,6 @@ class TavilyProvider:
                 stub=True,
             )
 
-        if self._request_func is None:
-            return self._error_response(
-                query=query,
-                max_results=max_results,
-                error_code=SearchProviderErrorCode.PROVIDER_UNAVAILABLE,
-                error_message="TavilyProvider requires an injected request function.",
-                reason="No request function is configured; real network access is not enabled.",
-                stub=True,
-            )
-
         if not self._api_key:
             return self._error_response(
                 query=query,
@@ -59,12 +53,13 @@ class TavilyProvider:
                 fake_client=True,
             )
 
+        request_func = self._request_func or self._default_request_func
         request_url = self._build_url()
         request_payload = self._build_payload(query, max_results)
         request_headers = self._build_headers()
 
         try:
-            raw_payload = self._request_func(
+            raw_payload = request_func(
                 url=request_url,
                 headers=request_headers,
                 json=request_payload,
@@ -93,6 +88,32 @@ class TavilyProvider:
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
+
+    def _default_request_func(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str],
+        json: dict[str, object],
+        timeout_seconds: float | None,
+    ) -> Mapping[str, Any]:
+        request_body = jsonlib.dumps(json).encode("utf-8")
+        request = urllib_request.Request(
+            url=url,
+            data=request_body,
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urllib_request.urlopen(request, timeout=timeout_seconds) as response:
+                response_body = response.read().decode("utf-8")
+        except urllib_error.HTTPError as exc:
+            return {
+                "status_code": exc.code,
+                "error": _read_http_error_body(exc),
+            }
+
+        return jsonlib.loads(response_body)
 
     def _map_response(
         self,
@@ -227,8 +248,17 @@ class TavilyProvider:
     def _error_code_from_exception(self, exc: Exception) -> SearchProviderErrorCode:
         if isinstance(exc, TimeoutError):
             return SearchProviderErrorCode.PROVIDER_TIMEOUT
+        if isinstance(exc, JSONDecodeError):
+            return SearchProviderErrorCode.PROVIDER_BAD_RESPONSE
+        if isinstance(exc, urllib_error.URLError):
+            reason = getattr(exc, "reason", None)
+            if isinstance(reason, TimeoutError):
+                return SearchProviderErrorCode.PROVIDER_TIMEOUT
+            return SearchProviderErrorCode.PROVIDER_UNAVAILABLE
 
         status_code = getattr(exc, "status_code", None)
+        if status_code is None:
+            status_code = getattr(exc, "code", None)
         if isinstance(status_code, int):
             return self._error_code_from_status(status_code, str(exc))
 
@@ -263,3 +293,10 @@ class TavilyProvider:
         if 500 <= status_code <= 599:
             return SearchProviderErrorCode.PROVIDER_UNAVAILABLE
         return SearchProviderErrorCode.PROVIDER_BAD_RESPONSE
+
+
+def _read_http_error_body(exc: urllib_error.HTTPError) -> str:
+    try:
+        return exc.read().decode("utf-8", errors="replace")
+    except Exception:
+        return str(exc)

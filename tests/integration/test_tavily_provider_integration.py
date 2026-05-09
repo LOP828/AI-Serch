@@ -62,14 +62,12 @@ def test_tavily_provider_real_network_integration_placeholder() -> None:
     provider = TavilyProvider(
         api_key=os.environ[API_KEY_ENV],
         allow_network=True,
-        request_func=None,
     )
-    response = provider.search("MiroThinker 1.7", max_results=1)
+    response = provider.search("OpenAI", max_results=1)
 
-    assert response.normalized_results == []
-    assert response.error_code is not None
-    assert response.error_code.value == "provider_unavailable"
-    assert response.metadata.debug["reason"] == (
-        "No request function is configured; real network access is not enabled."
-    )
-    pytest.skip("Real Tavily HTTP client is not implemented yet.")
+    assert isinstance(response.normalized_results, list)
+    assert "api_key" not in response.metadata.debug
+    assert os.environ[API_KEY_ENV] not in repr(response.metadata.debug)
+    assert os.environ[API_KEY_ENV] not in repr(response.metadata.raw_payload)
+    if response.error_code is not None:
+        pytest.fail(f"Tavily integration returned controlled error: {response.error_code.value}")

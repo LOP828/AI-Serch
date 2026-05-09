@@ -1,3 +1,6 @@
+import json
+from urllib import error as urllib_error
+
 from app.schemas.search import SearchResultSchema
 from app.services.providers.tavily_provider import TavilyProvider
 from app.services.search_provider import SearchProviderErrorCode, SearchProviderResponse
@@ -29,16 +32,16 @@ def test_tavily_provider_stub_does_not_require_api_key() -> None:
     assert response.error_code == SearchProviderErrorCode.PROVIDER_UNAVAILABLE
 
 
-def test_tavily_provider_stub_allow_network_true_still_does_not_call_network() -> None:
-    provider = TavilyProvider(api_key="test-not-real", allow_network=True, timeout_seconds=2.0)
+def test_tavily_provider_allow_network_true_without_api_key_does_not_call_network() -> None:
+    provider = TavilyProvider(api_key="", allow_network=True, timeout_seconds=2.0)
 
     response = provider.search("query", max_results=1)
 
     assert response.normalized_results == []
-    assert response.error_code == SearchProviderErrorCode.PROVIDER_UNAVAILABLE
+    assert response.error_code == SearchProviderErrorCode.PROVIDER_AUTH_FAILED
     assert response.metadata.debug["network_enabled"] is True
     assert response.metadata.debug["timeout_seconds"] == 2.0
-    assert response.metadata.debug["fake_client"] is False
+    assert response.metadata.debug["fake_client"] is True
 
 
 def test_tavily_provider_allow_network_false_does_not_call_fake_client() -> None:
@@ -63,11 +66,11 @@ def test_tavily_provider_allow_network_false_does_not_call_fake_client() -> None
 
 
 def test_tavily_provider_stub_does_not_expose_api_key_in_debug() -> None:
-    provider = TavilyProvider(api_key="test-not-real", allow_network=True)
+    provider = TavilyProvider(api_key="", allow_network=True)
 
     response = provider.search("query", max_results=1)
 
-    assert response.error_code == SearchProviderErrorCode.PROVIDER_UNAVAILABLE
+    assert response.error_code == SearchProviderErrorCode.PROVIDER_AUTH_FAILED
     assert "api_key" not in response.metadata.debug
     assert "test-not-real" not in repr(response.metadata.debug)
 
@@ -327,6 +330,160 @@ def test_tavily_provider_uses_configured_base_url_for_search_endpoint() -> None:
     assert fake_client.calls[0]["json"] == {"query": "query", "max_results": 4}
 
 
+def test_tavily_provider_default_client_builds_post_request(monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_urlopen(request, timeout):
+        calls.append(
+            {
+                "url": request.full_url,
+                "method": request.get_method(),
+                "authorization": request.get_header("Authorization"),
+                "content_type": request.get_header("Content-type"),
+                "body": json.loads(request.data.decode("utf-8")),
+                "timeout": timeout,
+            }
+        )
+        return FakeUrlopenResponse(
+            {
+                "results": [
+                    {
+                        "title": "Default client result",
+                        "url": "https://example.com/default-client",
+                        "content": "Default client snippet.",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(
+        "app.services.providers.tavily_provider.urllib_request.urlopen",
+        fake_urlopen,
+    )
+    provider = TavilyProvider(
+        api_key="test-api-key",
+        allow_network=True,
+        timeout_seconds=4.0,
+    )
+
+    response = provider.search("OpenAI", max_results=1)
+
+    assert response.error_code is None
+    assert response.normalized_results[0].title == "Default client result"
+    assert calls == [
+        {
+            "url": "https://api.tavily.com/search",
+            "method": "POST",
+            "authorization": "Bearer test-api-key",
+            "content_type": "application/json",
+            "body": {"query": "OpenAI", "max_results": 1},
+            "timeout": 4.0,
+        }
+    ]
+
+
+def test_tavily_provider_default_client_maps_401_to_auth_failed(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.providers.tavily_provider.urllib_request.urlopen",
+        lambda request, timeout: (_ for _ in ()).throw(FakeUrlopenHttpError(401, "unauthorized")),
+    )
+    provider = TavilyProvider(api_key="test-api-key", allow_network=True)
+
+    response = provider.search("query", max_results=1)
+
+    assert response.error_code == SearchProviderErrorCode.PROVIDER_AUTH_FAILED
+
+
+def test_tavily_provider_default_client_maps_403_to_auth_failed(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.providers.tavily_provider.urllib_request.urlopen",
+        lambda request, timeout: (_ for _ in ()).throw(FakeUrlopenHttpError(403, "forbidden")),
+    )
+    provider = TavilyProvider(api_key="test-api-key", allow_network=True)
+
+    response = provider.search("query", max_results=1)
+
+    assert response.error_code == SearchProviderErrorCode.PROVIDER_AUTH_FAILED
+
+
+def test_tavily_provider_default_client_maps_429_to_rate_limited(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.providers.tavily_provider.urllib_request.urlopen",
+        lambda request, timeout: (_ for _ in ()).throw(FakeUrlopenHttpError(429, "rate limited")),
+    )
+    provider = TavilyProvider(api_key="test-api-key", allow_network=True)
+
+    response = provider.search("query", max_results=1)
+
+    assert response.error_code == SearchProviderErrorCode.PROVIDER_RATE_LIMITED
+
+
+def test_tavily_provider_default_client_maps_quota_429_to_quota_exceeded(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.providers.tavily_provider.urllib_request.urlopen",
+        lambda request, timeout: (_ for _ in ()).throw(
+            FakeUrlopenHttpError(429, "quota exhausted")
+        ),
+    )
+    provider = TavilyProvider(api_key="test-api-key", allow_network=True)
+
+    response = provider.search("query", max_results=1)
+
+    assert response.error_code == SearchProviderErrorCode.PROVIDER_QUOTA_EXCEEDED
+
+
+def test_tavily_provider_default_client_maps_5xx_to_unavailable(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.providers.tavily_provider.urllib_request.urlopen",
+        lambda request, timeout: (_ for _ in ()).throw(
+            FakeUrlopenHttpError(503, "service unavailable")
+        ),
+    )
+    provider = TavilyProvider(api_key="test-api-key", allow_network=True)
+
+    response = provider.search("query", max_results=1)
+
+    assert response.error_code == SearchProviderErrorCode.PROVIDER_UNAVAILABLE
+
+
+def test_tavily_provider_default_client_maps_socket_timeout(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.providers.tavily_provider.urllib_request.urlopen",
+        lambda request, timeout: (_ for _ in ()).throw(TimeoutError("timeout")),
+    )
+    provider = TavilyProvider(api_key="test-api-key", allow_network=True)
+
+    response = provider.search("query", max_results=1)
+
+    assert response.error_code == SearchProviderErrorCode.PROVIDER_TIMEOUT
+
+
+def test_tavily_provider_default_client_maps_bad_json_to_bad_response(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.providers.tavily_provider.urllib_request.urlopen",
+        lambda request, timeout: FakeRawUrlopenResponse("not-json"),
+    )
+    provider = TavilyProvider(api_key="test-api-key", allow_network=True)
+
+    response = provider.search("query", max_results=1)
+
+    assert response.error_code == SearchProviderErrorCode.PROVIDER_BAD_RESPONSE
+
+
+def test_tavily_provider_default_client_maps_url_error_to_unavailable(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.providers.tavily_provider.urllib_request.urlopen",
+        lambda request, timeout: (_ for _ in ()).throw(
+            urllib_error.URLError("network unavailable")
+        ),
+    )
+    provider = TavilyProvider(api_key="test-api-key", allow_network=True)
+
+    response = provider.search("query", max_results=1)
+
+    assert response.error_code == SearchProviderErrorCode.PROVIDER_UNAVAILABLE
+
+
 def test_tavily_provider_normalizes_local_payload() -> None:
     payload = {
         "results": [
@@ -431,3 +588,48 @@ class FakeHttpError(Exception):
     def __init__(self, status_code: int, message: str) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+class FakeUrlopenResponse:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self._payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        del exc_type, exc, traceback
+        return False
+
+    def read(self) -> bytes:
+        return json.dumps(self._payload).encode("utf-8")
+
+
+class FakeRawUrlopenResponse:
+    def __init__(self, body: str) -> None:
+        self._body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        del exc_type, exc, traceback
+        return False
+
+    def read(self) -> bytes:
+        return self._body.encode("utf-8")
+
+
+class FakeUrlopenHttpError(urllib_error.HTTPError):
+    def __init__(self, status_code: int, body: str) -> None:
+        super().__init__(
+            url="https://api.tavily.com/search",
+            code=status_code,
+            msg=body,
+            hdrs=None,
+            fp=None,
+        )
+        self._body = body
+
+    def read(self) -> bytes:
+        return self._body.encode("utf-8")

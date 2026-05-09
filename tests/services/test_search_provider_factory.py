@@ -1,3 +1,5 @@
+from urllib import error as urllib_error
+
 import pytest
 
 from app.core.config import Settings
@@ -131,17 +133,22 @@ def test_tavily_provider_receives_configured_api_key_and_allow_network() -> None
     )
 
     adapter = build_search_adapter(settings)
-    response = adapter.search("query", max_results=1)
 
     assert isinstance(adapter._provider, TavilyProvider)
     assert adapter._provider._api_key == "test-api-key"
     assert adapter._provider._allow_network is True
     assert adapter._provider._request_func is None
-    assert response.results == []
-    assert response.error == "provider_unavailable"
 
 
-def test_tavily_provider_allow_network_true_without_request_func_does_not_expose_api_key() -> None:
+def test_tavily_provider_allow_network_true_default_client_does_not_expose_api_key(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.providers.tavily_provider.urllib_request.urlopen",
+        lambda request, timeout: (_ for _ in ()).throw(
+            urllib_error.URLError("network unavailable")
+        ),
+    )
     settings = Settings(
         _env_file=None,
         search_provider="tavily",
@@ -154,9 +161,7 @@ def test_tavily_provider_allow_network_true_without_request_func_does_not_expose
 
     assert provider_response.error_code.value == "provider_unavailable"
     assert provider_response.metadata.debug["network_enabled"] is True
-    assert provider_response.metadata.debug["reason"] == (
-        "No request function is configured; real network access is not enabled."
-    )
+    assert provider_response.metadata.debug["reason"] == "URLError"
     assert "api_key" not in provider_response.metadata.debug
     assert "test-api-key" not in repr(provider_response.metadata.debug)
 
