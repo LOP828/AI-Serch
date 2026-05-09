@@ -94,6 +94,7 @@ def test_tavily_provider_fake_client_success_returns_normalized_results() -> Non
         }
     )
     provider = TavilyProvider(
+        api_key="test-api-key",
         allow_network=True,
         timeout_seconds=2.5,
         request_func=fake_client,
@@ -115,8 +116,15 @@ def test_tavily_provider_fake_client_success_returns_normalized_results() -> Non
     assert response.metadata.raw_payload is not None
     assert fake_client.calls == [
         {
-            "query": "MiroThinker 1.7",
-            "max_results": 1,
+            "url": "https://api.tavily.com/search",
+            "headers": {
+                "Authorization": "Bearer test-api-key",
+                "Content-Type": "application/json",
+            },
+            "json": {
+                "query": "MiroThinker 1.7",
+                "max_results": 1,
+            },
             "timeout_seconds": 2.5,
         }
     ]
@@ -138,7 +146,11 @@ def test_tavily_provider_fake_client_keeps_provider_fields_out_of_schema() -> No
             "request_id": "fake-request",
         }
     )
-    provider = TavilyProvider(allow_network=True, request_func=fake_client)
+    provider = TavilyProvider(
+        api_key="test-api-key",
+        allow_network=True,
+        request_func=fake_client,
+    )
 
     response = provider.search("query", max_results=1)
     result_data = response.normalized_results[0].model_dump()
@@ -152,6 +164,7 @@ def test_tavily_provider_fake_client_keeps_provider_fields_out_of_schema() -> No
 
 def test_tavily_provider_fake_client_empty_results_are_valid() -> None:
     provider = TavilyProvider(
+        api_key="test-api-key",
         allow_network=True,
         request_func=RecordingTavilyClient(payload={"results": []}),
     )
@@ -164,6 +177,7 @@ def test_tavily_provider_fake_client_empty_results_are_valid() -> None:
 
 def test_tavily_provider_fake_client_timeout_maps_to_provider_timeout() -> None:
     provider = TavilyProvider(
+        api_key="test-api-key",
         allow_network=True,
         request_func=RaisingTavilyClient(TimeoutError("fake timeout")),
     )
@@ -177,6 +191,7 @@ def test_tavily_provider_fake_client_timeout_maps_to_provider_timeout() -> None:
 
 def test_tavily_provider_fake_client_auth_failed_maps_to_provider_auth_failed() -> None:
     provider = TavilyProvider(
+        api_key="test-api-key",
         allow_network=True,
         request_func=RaisingTavilyClient(FakeHttpError(401, "unauthorized")),
     )
@@ -187,8 +202,22 @@ def test_tavily_provider_fake_client_auth_failed_maps_to_provider_auth_failed() 
     assert response.error_code == SearchProviderErrorCode.PROVIDER_AUTH_FAILED
 
 
+def test_tavily_provider_fake_client_forbidden_maps_to_provider_auth_failed() -> None:
+    provider = TavilyProvider(
+        api_key="test-api-key",
+        allow_network=True,
+        request_func=RaisingTavilyClient(FakeHttpError(403, "forbidden")),
+    )
+
+    response = provider.search("query", max_results=1)
+
+    assert response.normalized_results == []
+    assert response.error_code == SearchProviderErrorCode.PROVIDER_AUTH_FAILED
+
+
 def test_tavily_provider_fake_client_rate_limit_maps_to_provider_rate_limited() -> None:
     provider = TavilyProvider(
+        api_key="test-api-key",
         allow_network=True,
         request_func=RecordingTavilyClient(payload={"status_code": 429, "error": "rate limited"}),
     )
@@ -201,6 +230,7 @@ def test_tavily_provider_fake_client_rate_limit_maps_to_provider_rate_limited() 
 
 def test_tavily_provider_fake_client_quota_maps_to_provider_quota_exceeded() -> None:
     provider = TavilyProvider(
+        api_key="test-api-key",
         allow_network=True,
         request_func=RecordingTavilyClient(
             payload={"status_code": 429, "error": "quota exhausted"},
@@ -215,6 +245,7 @@ def test_tavily_provider_fake_client_quota_maps_to_provider_quota_exceeded() -> 
 
 def test_tavily_provider_fake_client_bad_payload_maps_to_provider_bad_response() -> None:
     provider = TavilyProvider(
+        api_key="test-api-key",
         allow_network=True,
         request_func=RecordingTavilyClient(payload={"results": "not-a-list"}),
     )
@@ -225,8 +256,24 @@ def test_tavily_provider_fake_client_bad_payload_maps_to_provider_bad_response()
     assert response.error_code == SearchProviderErrorCode.PROVIDER_BAD_RESPONSE
 
 
+def test_tavily_provider_fake_client_5xx_maps_to_provider_unavailable() -> None:
+    provider = TavilyProvider(
+        api_key="test-api-key",
+        allow_network=True,
+        request_func=RecordingTavilyClient(
+            payload={"status_code": 503, "error": "service unavailable"},
+        ),
+    )
+
+    response = provider.search("query", max_results=1)
+
+    assert response.normalized_results == []
+    assert response.error_code == SearchProviderErrorCode.PROVIDER_UNAVAILABLE
+
+
 def test_tavily_provider_fake_client_generic_exception_maps_to_provider_unavailable() -> None:
     provider = TavilyProvider(
+        api_key="test-api-key",
         allow_network=True,
         request_func=RaisingTavilyClient(RuntimeError("fake network unavailable")),
     )
@@ -235,6 +282,49 @@ def test_tavily_provider_fake_client_generic_exception_maps_to_provider_unavaila
 
     assert response.normalized_results == []
     assert response.error_code == SearchProviderErrorCode.PROVIDER_UNAVAILABLE
+
+
+def test_tavily_provider_enabled_without_api_key_returns_auth_failed() -> None:
+    fake_client = RecordingTavilyClient(payload={"results": []})
+    provider = TavilyProvider(allow_network=True, request_func=fake_client)
+
+    response = provider.search("query", max_results=1)
+
+    assert response.normalized_results == []
+    assert response.error_code == SearchProviderErrorCode.PROVIDER_AUTH_FAILED
+    assert fake_client.calls == []
+    assert "api_key" not in response.metadata.debug
+
+
+def test_tavily_provider_request_metadata_does_not_expose_api_key() -> None:
+    provider = TavilyProvider(
+        api_key="test-api-key",
+        allow_network=True,
+        request_func=RecordingTavilyClient(payload={"results": []}),
+    )
+
+    response = provider.search("query", max_results=1)
+
+    assert response.error_code is None
+    assert "api_key" not in response.metadata.debug
+    assert "test-api-key" not in repr(response.metadata.debug)
+    assert "test-api-key" not in repr(response.metadata.raw_payload)
+
+
+def test_tavily_provider_uses_configured_base_url_for_search_endpoint() -> None:
+    fake_client = RecordingTavilyClient(payload={"results": []})
+    provider = TavilyProvider(
+        api_key="test-api-key",
+        allow_network=True,
+        request_func=fake_client,
+        base_url="https://example.test/tavily/",
+    )
+
+    response = provider.search("query", max_results=4)
+
+    assert response.error_code is None
+    assert fake_client.calls[0]["url"] == "https://example.test/tavily/search"
+    assert fake_client.calls[0]["json"] == {"query": "query", "max_results": 4}
 
 
 def test_tavily_provider_normalizes_local_payload() -> None:
@@ -298,15 +388,23 @@ def test_tavily_provider_normalize_payload_respects_max_results() -> None:
 
 
 class RecordingTavilyClient:
-    def __init__(self, payload):
+    def __init__(self, payload) -> None:
         self._payload = payload
         self.calls: list[dict[str, object]] = []
 
-    def __call__(self, *, query: str, max_results: int, timeout_seconds: float | None):
+    def __call__(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str],
+        json: dict[str, object],
+        timeout_seconds: float | None,
+    ):
         self.calls.append(
             {
-                "query": query,
-                "max_results": max_results,
+                "url": url,
+                "headers": headers,
+                "json": json,
                 "timeout_seconds": timeout_seconds,
             }
         )
@@ -317,8 +415,15 @@ class RaisingTavilyClient:
     def __init__(self, exc: Exception) -> None:
         self._exc = exc
 
-    def __call__(self, *, query: str, max_results: int, timeout_seconds: float | None):
-        del query, max_results, timeout_seconds
+    def __call__(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str],
+        json: dict[str, object],
+        timeout_seconds: float | None,
+    ):
+        del url, headers, json, timeout_seconds
         raise self._exc
 
 

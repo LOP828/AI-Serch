@@ -9,7 +9,8 @@ from app.services.search_provider import (
 )
 from app.services.search_provider_normalizer import normalize_tavily_results
 
-TavilyRequestFunc = Callable[..., Mapping[str, Any]]
+DEFAULT_TAVILY_BASE_URL = "https://api.tavily.com"
+TavilyRequestFunc = Callable[..., Any]
 
 
 class TavilyProvider:
@@ -19,11 +20,13 @@ class TavilyProvider:
         timeout_seconds: float | None = None,
         allow_network: bool = False,
         request_func: TavilyRequestFunc | None = None,
+        base_url: str = DEFAULT_TAVILY_BASE_URL,
     ) -> None:
         self._api_key = api_key
         self._timeout_seconds = timeout_seconds
         self._allow_network = allow_network
         self._request_func = request_func
+        self._base_url = base_url.rstrip("/")
 
     def search(self, query: str, max_results: int) -> SearchProviderResponse:
         if not self._allow_network:
@@ -46,15 +49,57 @@ class TavilyProvider:
                 stub=True,
             )
 
-        try:
-            raw_payload = self._request_func(
+        if not self._api_key:
+            return self._error_response(
                 query=query,
                 max_results=max_results,
+                error_code=SearchProviderErrorCode.PROVIDER_AUTH_FAILED,
+                error_message="TavilyProvider requires an API key for enabled network mode.",
+                reason="API key is missing.",
+                fake_client=True,
+            )
+
+        request_url = self._build_url()
+        request_payload = self._build_payload(query, max_results)
+        request_headers = self._build_headers()
+
+        try:
+            raw_payload = self._request_func(
+                url=request_url,
+                headers=request_headers,
+                json=request_payload,
                 timeout_seconds=self._timeout_seconds,
             )
         except Exception as exc:
             return self._exception_response(query, max_results, exc)
 
+        return self._map_response(
+            raw_payload=raw_payload,
+            query=query,
+            max_results=max_results,
+        )
+
+    def _build_url(self) -> str:
+        return f"{self._base_url}/search"
+
+    def _build_payload(self, query: str, max_results: int) -> dict[str, Any]:
+        return {
+            "query": query,
+            "max_results": max_results,
+        }
+
+    def _build_headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+
+    def _map_response(
+        self,
+        raw_payload: Any,
+        query: str,
+        max_results: int,
+    ) -> SearchProviderResponse:
         if not isinstance(raw_payload, Mapping):
             return self._error_response(
                 query=query,
