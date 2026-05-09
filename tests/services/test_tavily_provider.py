@@ -40,6 +40,16 @@ def test_tavily_provider_stub_allow_network_true_still_does_not_call_network() -
     assert response.metadata.debug["timeout_seconds"] == 2.0
 
 
+def test_tavily_provider_stub_does_not_expose_api_key_in_debug() -> None:
+    provider = TavilyProvider(api_key="test-not-real", allow_network=True)
+
+    response = provider.search("query", max_results=1)
+
+    assert response.error_code == SearchProviderErrorCode.PROVIDER_UNAVAILABLE
+    assert "api_key" not in response.metadata.debug
+    assert "test-not-real" not in repr(response.metadata.debug)
+
+
 def test_tavily_provider_normalizes_local_payload() -> None:
     payload = {
         "results": [

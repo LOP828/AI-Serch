@@ -4,6 +4,7 @@ from app.services.search_provider import (
     SearchProviderErrorCode,
     SearchProviderResponse,
 )
+from tests.services.provider_fixtures import ALL_PROVIDER_ERROR_CODES, provider_debug_payload
 
 
 def test_fake_search_provider_returns_normalized_results() -> None:
@@ -103,3 +104,37 @@ def test_fallback_metadata_is_separate_from_normalized_result() -> None:
     assert response.metadata.fallback_used is True
     assert response.metadata.debug == {"fallback_reason": "timeout"}
     assert "fallback_reason" not in result_data
+
+
+def test_fake_provider_can_return_each_controlled_error_code() -> None:
+    for error_code in ALL_PROVIDER_ERROR_CODES:
+        provider = FakeSearchProvider(
+            error_code=error_code,
+            error_message=f"{error_code.value} fixture",
+        )
+
+        response = provider.search("query", max_results=8)
+
+        assert response.normalized_results == []
+        assert response.error_code == error_code
+        assert response.error_message == f"{error_code.value} fixture"
+        assert response.metadata.provider == "fake"
+
+
+def test_provider_error_response_keeps_metadata_and_debug_separate() -> None:
+    debug = provider_debug_payload()
+    provider = FakeSearchProvider(
+        error_code=SearchProviderErrorCode.PROVIDER_BAD_RESPONSE,
+        error_message="bad provider payload",
+        fallback_used=True,
+        raw_payload={"private_score": 0.42, "provider": "fake"},
+        debug=debug,
+    )
+
+    response = provider.search("query", max_results=8)
+
+    assert response.normalized_results == []
+    assert response.error_code == SearchProviderErrorCode.PROVIDER_BAD_RESPONSE
+    assert response.metadata.fallback_used is True
+    assert response.metadata.raw_payload == {"private_score": 0.42, "provider": "fake"}
+    assert response.metadata.debug == debug

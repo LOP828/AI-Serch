@@ -65,12 +65,45 @@ def test_fake_provider_default_is_non_network_test_provider() -> None:
     assert response.results[0].title == "Fake provider model card"
 
 
+def test_static_provider_ignores_fake_override_and_keeps_static_path() -> None:
+    settings = Settings(_env_file=None, search_provider="static")
+    provider = FakeSearchProvider(
+        results=[
+            SearchResultSchema(
+                title="Should not be used",
+                url="https://example.com/not-used",
+                snippet="not used",
+            )
+        ]
+    )
+
+    response = build_search_adapter(
+        settings,
+        provider_overrides={"fake": provider},
+    ).search("query", max_results=1)
+
+    assert response.error is None
+    assert response.results[0].title == "MiroThinker-1.7 - Hugging Face"
+    assert provider.queries == []
+
+
 @pytest.mark.parametrize("provider_name", ["tavily", "brave", "serpapi"])
 def test_real_provider_names_are_explicitly_not_implemented(provider_name: str) -> None:
     settings = Settings(_env_file=None, search_provider=provider_name)
 
     with pytest.raises(SearchProviderNotImplementedError, match=provider_name):
         build_search_adapter(settings)
+
+
+@pytest.mark.parametrize("provider_name", ["tavily", "brave", "serpapi"])
+def test_real_provider_names_cannot_be_enabled_by_test_override(provider_name: str) -> None:
+    settings = Settings(_env_file=None, search_provider=provider_name)
+    provider = FakeSearchProvider()
+
+    with pytest.raises(SearchProviderNotImplementedError, match=provider_name):
+        build_search_adapter(settings, provider_overrides={provider_name: provider})
+
+    assert provider.queries == []
 
 
 def test_invalid_provider_name_has_clear_error() -> None:

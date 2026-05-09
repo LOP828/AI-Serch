@@ -1,6 +1,7 @@
 from app.schemas.search import SearchResultSchema
 from app.services.search_adapter import StaticSearchAdapter, deduplicate_search_results
 from app.services.search_provider import FakeSearchProvider, SearchProviderErrorCode
+from tests.services.provider_fixtures import ALL_PROVIDER_ERROR_CODES, provider_results
 
 
 def test_static_search_adapter_returns_normalized_result_fields() -> None:
@@ -114,6 +115,16 @@ def test_provider_error_returns_controlled_empty_adapter_response() -> None:
     assert response.error == "provider_timeout"
 
 
+def test_provider_error_codes_are_forwarded_as_controlled_adapter_errors() -> None:
+    for error_code in ALL_PROVIDER_ERROR_CODES:
+        provider = FakeSearchProvider(error_code=error_code)
+
+        response = StaticSearchAdapter(provider=provider).search("query", max_results=8)
+
+        assert response.results == []
+        assert response.error == error_code.value
+
+
 def test_provider_exception_returns_controlled_empty_adapter_response() -> None:
     response = StaticSearchAdapter(provider=RaisingSearchProvider()).search(
         "query",
@@ -126,21 +137,44 @@ def test_provider_exception_returns_controlled_empty_adapter_response() -> None:
 
 
 def test_adapter_provider_path_respects_max_results() -> None:
-    results = [
-        SearchResultSchema(title="One", url="https://example.com/one", snippet="one"),
-        SearchResultSchema(title="Two", url="https://example.com/two", snippet="two"),
-        SearchResultSchema(title="Three", url="https://example.com/three", snippet="three"),
-    ]
+    provider = FakeSearchProvider(results=provider_results(count=3))
 
-    response = StaticSearchAdapter(provider=FakeSearchProvider(results=results)).search(
+    response = StaticSearchAdapter(provider=provider).search(
         "query",
         max_results=2,
     )
 
-    assert [result.title for result in response.results] == ["One", "Two"]
+    assert [result.title for result in response.results] == [
+        "Provider fixture result 1",
+        "Provider fixture result 2",
+    ]
+    assert provider.max_results_values == [2]
+
+
+def test_provider_results_are_capped_even_if_provider_over_returns() -> None:
+    provider = OverReturningSearchProvider()
+
+    response = StaticSearchAdapter(provider=provider).search("query", max_results=2)
+
+    assert response.error is None
+    assert [result.title for result in response.results] == [
+        "Provider fixture result 1",
+        "Provider fixture result 2",
+    ]
 
 
 class RaisingSearchProvider:
     def search(self, query: str, max_results: int):
         del query, max_results
         raise RuntimeError("provider failed")
+
+
+class OverReturningSearchProvider:
+    def search(self, query: str, max_results: int):
+        del query, max_results
+        from app.services.search_provider import SearchProviderMetadata, SearchProviderResponse
+
+        return SearchProviderResponse(
+            normalized_results=provider_results(count=4),
+            metadata=SearchProviderMetadata(provider="over-returning-fixture"),
+        )
