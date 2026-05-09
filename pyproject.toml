@@ -24,6 +24,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
+markers = [
+    "integration: manually opted-in tests that may require network credentials",
+]
 
 [tool.ruff]
 line-length = 100
