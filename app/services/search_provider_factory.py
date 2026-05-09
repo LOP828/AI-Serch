@@ -1,11 +1,12 @@
 from collections.abc import Mapping
 
 from app.core.config import Settings, get_settings
+from app.services.providers.tavily_provider import TavilyProvider
 from app.services.search_adapter import StaticSearchAdapter
 from app.services.search_provider import FakeSearchProvider, SearchProvider
 
 STATIC_PROVIDER_NAMES = frozenset({"static", "mock"})
-REAL_PROVIDER_NAMES = frozenset({"tavily", "brave", "serpapi"})
+RESERVED_PROVIDER_NAMES = frozenset({"brave", "serpapi"})
 
 
 class SearchProviderConfigurationError(ValueError):
@@ -30,7 +31,15 @@ def build_search_adapter(
         provider = (provider_overrides or {}).get("fake", FakeSearchProvider())
         return StaticSearchAdapter(provider=provider)
 
-    if provider_name in REAL_PROVIDER_NAMES:
+    if provider_name == "tavily":
+        return StaticSearchAdapter(
+            provider=TavilyProvider(
+                timeout_seconds=resolved_settings.search_timeout_seconds,
+                allow_network=False,
+            )
+        )
+
+    if provider_name in RESERVED_PROVIDER_NAMES:
         raise SearchProviderNotImplementedError(
             f"Search provider '{provider_name}' is reserved but not implemented."
         )
