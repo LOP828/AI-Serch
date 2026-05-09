@@ -12,10 +12,14 @@ from app.services.search_provider_factory import (
 
 
 def test_default_settings_build_static_search_adapter_behavior() -> None:
-    adapter = build_search_adapter(Settings(_env_file=None))
+    settings = Settings(_env_file=None)
+    adapter = build_search_adapter(settings)
 
     response = adapter.search("MiroThinker 1.7", max_results=1)
 
+    assert settings.search_provider == "static"
+    assert settings.search_api_key == ""
+    assert settings.search_allow_network is False
     assert response.error is None
     assert len(response.results) == 1
     assert response.results[0].title == "MiroThinker-1.7 - Hugging Face"
@@ -97,7 +101,7 @@ def test_tavily_provider_builds_disabled_opt_in_adapter() -> None:
     assert isinstance(adapter._provider, TavilyProvider)
     assert adapter._provider._allow_network is False
     assert adapter._provider._request_func is None
-    assert adapter._provider._api_key is None
+    assert adapter._provider._api_key == ""
     assert response.results == []
     assert response.error == "provider_unavailable"
 
@@ -116,6 +120,59 @@ def test_tavily_provider_opt_in_uses_configured_timeout_without_api_key() -> Non
     assert provider_response.metadata.debug["network_enabled"] is False
     assert provider_response.metadata.debug["timeout_seconds"] == 3.5
     assert "api_key" not in provider_response.metadata.debug
+
+
+def test_tavily_provider_receives_configured_api_key_and_allow_network() -> None:
+    settings = Settings(
+        _env_file=None,
+        search_provider="tavily",
+        search_api_key="test-api-key",
+        search_allow_network=True,
+    )
+
+    adapter = build_search_adapter(settings)
+    response = adapter.search("query", max_results=1)
+
+    assert isinstance(adapter._provider, TavilyProvider)
+    assert adapter._provider._api_key == "test-api-key"
+    assert adapter._provider._allow_network is True
+    assert adapter._provider._request_func is None
+    assert response.results == []
+    assert response.error == "provider_unavailable"
+
+
+def test_tavily_provider_allow_network_true_without_request_func_does_not_expose_api_key() -> None:
+    settings = Settings(
+        _env_file=None,
+        search_provider="tavily",
+        search_api_key="test-api-key",
+        search_allow_network=True,
+    )
+
+    adapter = build_search_adapter(settings)
+    provider_response = adapter._provider.search("query", max_results=1)
+
+    assert provider_response.error_code.value == "provider_unavailable"
+    assert provider_response.metadata.debug["network_enabled"] is True
+    assert provider_response.metadata.debug["reason"] == (
+        "No request function is configured; real network access is not enabled."
+    )
+    assert "api_key" not in provider_response.metadata.debug
+    assert "test-api-key" not in repr(provider_response.metadata.debug)
+
+
+def test_tavily_provider_missing_api_key_returns_auth_failed_with_client() -> None:
+    provider = TavilyProvider(
+        api_key="",
+        allow_network=True,
+        request_func=lambda **kwargs: {"results": []},
+    )
+
+    response = provider.search("query", max_results=1)
+
+    assert response.error_code.value == "provider_auth_failed"
+    assert response.metadata.debug["network_enabled"] is True
+    assert "api_key" not in response.metadata.debug
 
 
 @pytest.mark.parametrize("provider_name", ["brave", "serpapi"])
@@ -158,8 +215,9 @@ def test_invalid_provider_name_has_clear_error() -> None:
         build_search_adapter(settings)
 
 
-def test_search_settings_do_not_define_api_key_field() -> None:
+def test_search_settings_default_api_key_and_allow_network_are_safe() -> None:
     settings = Settings(_env_file=None)
 
     assert settings.search_provider == "static"
-    assert not hasattr(settings, "search_api_key")
+    assert settings.search_api_key == ""
+    assert settings.search_allow_network is False

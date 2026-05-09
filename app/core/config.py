@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     environment: str = "development"
     log_level: str = "INFO"
     search_provider: str = "static"
+    search_api_key: str = ""
+    search_allow_network: bool = False
     search_timeout_seconds: float = 8.0
     search_max_results_default: int = 8
     search_retry_attempts: int = 1

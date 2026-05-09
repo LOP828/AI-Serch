@@ -34,8 +34,9 @@ def build_search_adapter(
     if provider_name == "tavily":
         return StaticSearchAdapter(
             provider=TavilyProvider(
+                api_key=resolved_settings.search_api_key,
                 timeout_seconds=resolved_settings.search_timeout_seconds,
-                allow_network=False,
+                allow_network=resolved_settings.search_allow_network,
             )
         )
 
