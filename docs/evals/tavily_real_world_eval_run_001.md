@@ -243,18 +243,18 @@ strictness: balanced
 max_sources: 2
 provider: tavily
 endpoint_or_entrypoint: /api/v1/trusted-search
-opt_in_env_used:
-tavily_network_enabled:
-notes:
+opt_in_env_used: yes
+tavily_network_enabled: yes
+notes: Real Tavily run summary recorded as a sanitized evidence package summary. No API key, Authorization header, or raw provider payload recorded.
 ```
 
 ### Request Config
 
 ```yaml
-CSL_SEARCH_PROVIDER:
-CSL_SEARCH_ALLOW_NETWORK:
-CSL_RUN_INTEGRATION_TESTS:
-CSL_SEARCH_API_KEY_PRESENT: yes/no
+CSL_SEARCH_PROVIDER: tavily
+CSL_SEARCH_ALLOW_NETWORK: true
+CSL_RUN_INTEGRATION_TESTS: true
+CSL_SEARCH_API_KEY_PRESENT: yes
 CSL_SEARCH_API_KEY_VALUE: DO NOT RECORD
 PYTHONPATH_USED: yes/no
 UV_PROJECT_ENVIRONMENT_USED: yes/no
@@ -263,28 +263,40 @@ UV_PROJECT_ENVIRONMENT_USED: yes/no
 ### Response Summary
 
 ```yaml
-overall_status:
+overall_status: uncertain
 overall_confidence:
-claims_count:
-sources_count:
-evidence_count:
-conflicts_count:
-answer_allowed_tone:
-must_disclose_uncertainty:
-can_answer_confidently:
+claims_count: 6
+sources_count: 2
+evidence_count: 8
+conflicts_count: 0
+answer_allowed_tone: cautious
+must_disclose_uncertainty: true
+can_answer_confidently: false
+must_cite_sources: true
 ```
 
 ### Claims
 
 | claim_id | claim_text | claim_type | status | confidence | evidence_count | human_judgment | suspected_issue |
 |---|---|---|---|---:|---:|---|---|
-|  |  |  |  |  |  |  |  |
+| c1 | Llama 3.1 是否存在公开发布页面 | existence | unsupported | 0.0 | 1 | reasonable unsupported result despite weak related evidence | no_relevant_supporting_evidence |
+| c2 | Llama 3.1 是否公开模型权重 | model_weights | uncertain | 0.246 | 2 | too much uncertainty caused by mismatched weak sources | entity_version_mismatch |
+| c3 | Llama 3.1 是否公开训练代码 | source_code | unsupported | 0.0 | 0 | reasonable unsupported result | no_evidence |
+| c4 | Llama 3.1 是否公开训练数据 | training_data | uncertain | 0.246 | 1 | weak evidence does not validate this claim | unrelated_or_mismatched_evidence |
+| c5 | Llama 3.1 的许可证是否允许商用 | license | uncertain | 0.246 | 2 | weak evidence; exact license claim not established | entity_version_mismatch |
+| c6 | Llama 3.1 是否能严格称为开源模型 | interpretation | uncertain | 0.246 | 2 | weak evidence; cautious status is appropriate | entity_version_mismatch |
+
+Claim notes:
+
+- c1 reason: No relevant supporting evidence was found.
+- c2 reason: Only partial or low-confidence evidence was found.
 
 ### Sources
 
 | source_id | title | url_domain_only | source_type | base_reliability | is_primary_source | published_at | human_source_type_judgment | suspected_issue |
 |---|---|---|---|---:|---|---|---|---|
-|  |  |  |  |  |  |  |  |  |
+| s1 | 开源大语言模型是否可以商用的调查报告 - CSDN博客 | blog.csdn.net | unknown | 0.3 | false |  | weak secondary source; not official; entity/version mismatch risk | missing_official_primary_source |
+| s2 | 免费可商用开源GPT模型问世，50G权重直接下载，性能不输GPT-3 | qbitai.com | unknown | 0.3 | false |  | weak media/secondary source; not about Llama 3.1 directly | unrelated_or_mismatched_source |
 
 ### Page Fetch Summary
 
@@ -294,39 +306,46 @@ snippet_fallback_count:
 failed_count:
 empty_text_count:
 noisy_text_count:
-notes:
+notes: Page fetch status counts were not recorded in this sanitized summary.
 ```
 
 ### Evidence
 
 | evidence_id | claim_id | source_id | support_type | relevance_score | final_score | evidence_text_short_excerpt | human_support_judgment | suspected_issue |
 |---|---|---|---|---:|---:|---|---|---|
-|  |  |  |  |  |  |  |  |  |
+| e1 | c1 | s1 | oppose | 0.78 | 0.234 | Facebook官方发布的LLaMA模型禁止商用，并且官方没有正式开源模型权重... | poor evidence; appears to refer to older LLaMA, not Llama 3.1 | entity_version_mismatch |
+| e2 | c2 | s1 | oppose | 0.78 | 0.234 | Facebook官方发布的LLaMA模型禁止商用，并且官方没有正式开源模型权重... | poor evidence; version mismatch | entity_version_mismatch |
+| e3 | c2 | s2 | support | 0.82 | 0.246 | 参数量级130亿，大小比肩最近Meta开放的LLaMA-13B... | poor evidence; likely about another model, not Llama 3.1 | unrelated_or_mismatched_evidence |
+| e4 | c4 | s2 | support | 0.82 | 0.246 | 参数量级130亿，大小比肩最近Meta开放的LLaMA-13B... | poor evidence; not valid for Llama 3.1 training data | unrelated_or_mismatched_evidence |
+| e5 | c5 | s1 | oppose | 0.78 | 0.234 | Facebook官方发布的LLaMA模型禁止商用... | poor evidence; older LLaMA license, not Llama 3.1 | entity_version_mismatch |
+| e6 | c5 | s2 | support | 0.82 | 0.246 | 最关键的是，可商用。 | poor evidence; likely unrelated model | unrelated_or_mismatched_evidence |
+| e7 | c6 | s1 | oppose | 0.78 | 0.234 | Facebook官方发布的LLaMA模型禁止商用... | weak evidence; version mismatch | entity_version_mismatch |
+| e8 | c6 | s2 | support | 0.82 | 0.246 | 参数量级130亿，大小比肩最近Meta开放的LLaMA-13B... | weak evidence; unrelated/older model risk | unrelated_or_mismatched_evidence |
 
 ### Quality Scoring
 
 | metric | score | reason |
 |---|---:|---|
-| search_relevance_score |  |  |
-| source_quality_score |  |  |
-| source_classification_score |  |  |
-| fetch_quality_score |  |  |
-| evidence_quality_score |  |  |
-| scoring_reasonableness_score |  |  |
-| aggregation_reasonableness_score |  |  |
-| answer_constraint_score |  |  |
-| overall_trust_score |  |  |
+| search_relevance_score | 1 | Search returned weak secondary sources and missed exact-version official sources. |
+| source_quality_score | 1 | Both sources were weak non-primary sources. |
+| source_classification_score | 3 | Both sources were low-reliability `unknown`; acceptable but could benefit from better media/blog classification. |
+| fetch_quality_score | 3 | Page fetch status counts were not recorded; evidence was available but low quality. |
+| evidence_quality_score | 1 | Evidence mixed older LLaMA or unrelated models into a Llama 3.1 question. |
+| scoring_reasonableness_score | 3 | Weak source base reliability prevented high confidence, but relevance scores were too high for mismatched evidence. |
+| aggregation_reasonableness_score | 4 | Aggregator remained cautious and did not over-confirm. |
+| answer_constraint_score | 5 | Answer constraints correctly required cautious language and uncertainty disclosure. |
+| overall_trust_score | 2 | Package is useful for diagnosing failure, but not reliable enough for answering the claim. |
 
 ### Failure Point Checklist
 
 - [ ] Tavily returned irrelevant sources
-- [ ] Missing official / primary source
+- [x] Missing official / primary source
 - [ ] Source classified as unknown too often
 - [ ] Source type misclassified
 - [ ] Page fetch failed too often
 - [ ] Snippet fallback too frequent
-- [ ] Evidence unrelated to claim
-- [ ] Evidence support_type wrong
+- [x] Evidence unrelated to claim
+- [x] Evidence support_type wrong
 - [ ] Evidence missed key fact
 - [ ] Scoring too high for weak source
 - [ ] Scoring too low for strong source
@@ -336,15 +355,34 @@ notes:
 - [ ] Answer constraints too confident
 - [ ] Answer constraints too cautious
 
+Additional observations:
+
+- [x] Tavily returned weak secondary sources
+- [x] Entity/version mismatch
+- [x] Relevance score too high for mismatched evidence
+- [x] Scoring did not overtrust weak sources
+- [x] Claim aggregator remained cautious
+- [x] Answer constraints reasonable
+
 ### Human Conclusion
 
 ```yaml
 What worked well:
+  - The system did not over-confirm the answer.
+  - It kept cautious answer constraints.
+  - Low source base reliability prevented high confidence.
 What failed:
+  - Search returned weak Chinese secondary sources instead of Meta / llama.com / Hugging Face official sources.
+  - Evidence mixed older LLaMA and unrelated models into a Llama 3.1 question.
 Most likely root cause:
+  - SearchPlanner lacks official-source-biased and exact-version queries.
+  - Evidence extraction lacks entity/version guard.
+  - max_sources=2 may truncate better official sources.
 Recommended next fix:
-Should this sample become a regression test? yes/no
-Priority: P0/P1/P2
+  - Do not tune scorer first. Improve ai_model_info search planning and add entity/version filtering before evidence scoring.
+  - Consider queries like "Llama 3.1 Meta official license", "site:llama.com Llama 3.1 license", "meta-llama Llama-3.1 Hugging Face", "Llama 3.1 model weights commercial use".
+Should this sample become a regression test? yes
+Priority: P1
 ```
 
 ## eval_003
