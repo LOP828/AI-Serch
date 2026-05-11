@@ -101,18 +101,18 @@ strictness: balanced
 max_sources: 2
 provider: tavily
 endpoint_or_entrypoint: /api/v1/trusted-search
-opt_in_env_used:
-tavily_network_enabled:
-notes:
+opt_in_env_used: yes
+tavily_network_enabled: yes
+notes: Real Tavily run summary recorded as a sanitized evidence package summary. No API key, Authorization header, or raw provider payload recorded.
 ```
 
 ### Request Config
 
 ```yaml
-CSL_SEARCH_PROVIDER:
-CSL_SEARCH_ALLOW_NETWORK:
-CSL_RUN_INTEGRATION_TESTS:
-CSL_SEARCH_API_KEY_PRESENT: yes/no
+CSL_SEARCH_PROVIDER: tavily
+CSL_SEARCH_ALLOW_NETWORK: true
+CSL_RUN_INTEGRATION_TESTS: true
+CSL_SEARCH_API_KEY_PRESENT: yes
 CSL_SEARCH_API_KEY_VALUE: DO NOT RECORD
 PYTHONPATH_USED: yes/no
 UV_PROJECT_ENVIRONMENT_USED: yes/no
@@ -121,28 +121,39 @@ UV_PROJECT_ENVIRONMENT_USED: yes/no
 ### Response Summary
 
 ```yaml
-overall_status:
-overall_confidence:
-claims_count:
-sources_count:
-evidence_count:
-conflicts_count:
-answer_allowed_tone:
-must_disclose_uncertainty:
-can_answer_confidently:
+overall_status: uncertain
+overall_confidence: 0.0547
+claims_count: 6
+sources_count: 2
+evidence_count: 1
+conflicts_count: 0
+answer_allowed_tone: cautious
+must_disclose_uncertainty: true
+can_answer_confidently: false
+must_cite_sources: true
 ```
 
 ### Claims
 
 | claim_id | claim_text | claim_type | status | confidence | evidence_count | human_judgment | suspected_issue |
 |---|---|---|---|---:|---:|---|---|
-|  |  |  |  |  |  |  |  |
+| c1 | GPT-4.1 是否存在公开发布页面 | existence | uncertain | 0.328 | 1 | partially useful evidence, but not enough for confirmed | missing_official_primary_source |
+| c2 | GPT-4.1 是否公开模型权重 | model_weights | unsupported | 0.0 | 0 | reasonable unsupported result | no_evidence |
+| c3 | GPT-4.1 是否公开训练代码 | source_code | unsupported | 0.0 | 0 | reasonable unsupported result | no_evidence |
+| c4 | GPT-4.1 是否公开训练数据 | training_data | unsupported | 0.0 | 0 | reasonable unsupported result | no_evidence |
+| c5 | GPT-4.1 的许可证是否允许商用 | license | unsupported | 0.0 | 0 | reasonable unsupported result | no_evidence |
+| c6 | GPT-4.1 是否能严格称为开源模型 | interpretation | unsupported | 0.0 | 0 | reasonable unsupported result | no_evidence |
+
+Claim notes:
+
+- c1 reason: Only partial or low-confidence evidence was found.
 
 ### Sources
 
 | source_id | title | url_domain_only | source_type | base_reliability | is_primary_source | published_at | human_source_type_judgment | suspected_issue |
 |---|---|---|---|---:|---|---|---|---|
-|  |  |  |  |  |  |  |  |  |
+| s1 | OpenAI发布GPT-4.1系列模型，超越前辈4o，但未超越竞争对手 | zhuanlan.zhihu.com | community_forum | 0.4 | false |  | correct | not_primary_source |
+| s2 | OpenAI 发布了GPT 4.1 型号和价格 - Reddit | reddit.com | community_forum | 0.4 | false |  | correct | not_primary_source |
 
 ### Page Fetch Summary
 
@@ -152,33 +163,33 @@ snippet_fallback_count:
 failed_count:
 empty_text_count:
 noisy_text_count:
-notes:
+notes: Page fetch status counts were not recorded in this sanitized summary.
 ```
 
 ### Evidence
 
 | evidence_id | claim_id | source_id | support_type | relevance_score | final_score | evidence_text_short_excerpt | human_support_judgment | suspected_issue |
 |---|---|---|---|---:|---:|---|---|---|
-|  |  |  |  |  |  |  |  |  |
+| e1 | c1 | s1 | support | 0.82 | 0.328 | 北京时间4月15号凌晨，OpenAI 直播发布了名为 GPT-4.1 的多模态系列模型。 | partially useful but not primary-source evidence | missing_official_primary_source |
 
 ### Quality Scoring
 
 | metric | score | reason |
 |---|---:|---|
-| search_relevance_score |  |  |
-| source_quality_score |  |  |
-| source_classification_score |  |  |
-| fetch_quality_score |  |  |
-| evidence_quality_score |  |  |
-| scoring_reasonableness_score |  |  |
-| aggregation_reasonableness_score |  |  |
-| answer_constraint_score |  |  |
-| overall_trust_score |  |  |
+| search_relevance_score | 2 | Results were related to GPT-4.1 but missed the official OpenAI source. |
+| source_quality_score | 1 | Both returned sources were community sources, not official or primary sources. |
+| source_classification_score | 5 | Zhihu and Reddit were correctly classified as `community_forum`. |
+| fetch_quality_score | 3 | Page fetch status counts were not recorded; available evidence was usable but limited. |
+| evidence_quality_score | 3 | Evidence was relevant to release existence, but only from a community source. |
+| scoring_reasonableness_score | 4 | Community source evidence was not over-scored. |
+| aggregation_reasonableness_score | 4 | Aggregation stayed uncertain/unsupported instead of over-confirming. |
+| answer_constraint_score | 5 | Answer constraints correctly required cautious language and uncertainty disclosure. |
+| overall_trust_score | 3 | Useful as a cautious evidence package, but not enough for confident answer due to missing official source. |
 
 ### Failure Point Checklist
 
 - [ ] Tavily returned irrelevant sources
-- [ ] Missing official / primary source
+- [x] Missing official / primary source
 - [ ] Source classified as unknown too often
 - [ ] Source type misclassified
 - [ ] Page fetch failed too often
@@ -194,15 +205,28 @@ notes:
 - [ ] Answer constraints too confident
 - [ ] Answer constraints too cautious
 
+Additional observations:
+
+- [x] Tavily returned community sources first
+- [x] Source classification correct
+- [x] Scoring reasonable
+- [x] Answer constraints reasonable
+
 ### Human Conclusion
 
 ```yaml
 What worked well:
+  - source_classifier correctly classified Zhihu and Reddit as community_forum.
+  - scorer did not over-trust community sources.
+  - aggregator and answer constraints remained cautious.
 What failed:
+  - Search did not retrieve OpenAI official source.
 Most likely root cause:
+  - search query / search planning did not prioritize official OpenAI source, and max_sources=2 may have truncated better results.
 Recommended next fix:
-Should this sample become a regression test? yes/no
-Priority: P0/P1/P2
+  - Do not tune scorer first. Investigate SearchPlanner query generation for ai_model_info and consider official-source-biased queries such as "GPT-4.1 OpenAI official", "site:openai.com GPT-4.1", or provider-side result expansion before truncation.
+Should this sample become a regression test? yes
+Priority: P1
 ```
 
 ## eval_002
