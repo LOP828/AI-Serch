@@ -1,10 +1,14 @@
+from math import ceil
+
 from app.schemas.claim import ClaimSchema, ClaimStatus
 from app.schemas.conflict import ConflictSchema
 from app.schemas.evidence import EvidenceSchema
 from app.schemas.page import PageFetchResultSchema
+from app.schemas.search import SearchPlanItemSchema
 from app.schemas.trusted_search import (
     OverallStatus,
     QuestionType,
+    Strictness,
     TrustedSearchRequest,
     TrustedSearchResponse,
 )
@@ -23,6 +27,13 @@ from app.services.reliability_scorer import ReliabilityScorer
 from app.services.search_adapter import SearchAdapter, StaticSearchAdapter
 from app.services.search_planner import build_search_plan
 from app.services.source_classifier import search_results_to_sources
+
+QUERY_BUDGET_BY_STRICTNESS = {
+    Strictness.STRICT: 3,
+    Strictness.BALANCED: 5,
+    Strictness.LOOSE: 7,
+}
+MAX_PROVIDER_CANDIDATES = 10
 
 
 class TrustedSearchService:
@@ -59,11 +70,13 @@ class TrustedSearchService:
             claims=claim_drafts,
             strictness=request.strictness,
         )
-        adapter_response = self._search_adapter.search(
-            request.query,
-            max_results=request.max_sources,
+        adapter_response = self._search_candidates(
+            original_query=request.query,
+            search_plan=search_plan,
+            strictness=request.strictness,
+            max_sources=request.max_sources,
         )
-        sources = search_results_to_sources(adapter_response.results)
+        sources = search_results_to_sources(adapter_response.results[: request.max_sources])
         page_fetches = [self._safe_fetch_source(source) for source in sources]
         evidence_by_claim_id = extract_evidence_for_claims(
             claims=claim_drafts,
@@ -127,6 +140,52 @@ class TrustedSearchService:
                 fetch_status="fallback" if source.snippet else "failed",
                 error_message=f"unexpected fetch error: {exc}",
             )
+
+    def _search_candidates(
+        self,
+        original_query: str,
+        search_plan: list[SearchPlanItemSchema],
+        strictness: Strictness,
+        max_sources: int,
+    ):
+        selected_queries = select_candidate_queries(
+            search_plan=search_plan,
+            strictness=strictness,
+            fallback_query=original_query,
+        )
+        max_candidates = provider_candidate_limit(max_sources)
+        max_results_per_query = max(1, ceil(max_candidates / len(selected_queries)))
+        search_many = getattr(self._search_adapter, "search_many", None)
+        if callable(search_many):
+            return search_many(
+                selected_queries,
+                max_results_per_query=max_results_per_query,
+                max_total_results=max_candidates,
+            )
+        return self._search_adapter.search(original_query, max_results=max_sources)
+
+
+def select_candidate_queries(
+    search_plan: list[SearchPlanItemSchema],
+    strictness: Strictness,
+    fallback_query: str,
+) -> list[str]:
+    budget = QUERY_BUDGET_BY_STRICTNESS[strictness]
+    selected: list[str] = []
+    seen: set[str] = set()
+    for item in search_plan:
+        for query in item.queries:
+            if query in seen:
+                continue
+            seen.add(query)
+            selected.append(query)
+            if len(selected) >= budget:
+                return selected
+    return selected or [fallback_query]
+
+
+def provider_candidate_limit(max_sources: int) -> int:
+    return min(max(max_sources * 3, max_sources), MAX_PROVIDER_CANDIDATES)
 
 
 def derive_overall_status(

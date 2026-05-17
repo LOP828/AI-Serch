@@ -1,8 +1,18 @@
 from app.schemas.claim import ClaimSchema
-from app.schemas.trusted_search import OverallStatus, QuestionType
+from app.schemas.search import SearchPlanItemSchema, SearchResultSchema
+from app.schemas.trusted_search import (
+    OverallStatus,
+    QuestionType,
+    Strictness,
+    TrustedSearchRequest,
+)
+from app.services.search_adapter import SearchAdapterResponse
 from app.services.trusted_search_service import (
+    TrustedSearchService,
     derive_overall_confidence,
     derive_overall_status,
+    provider_candidate_limit,
+    select_candidate_queries,
 )
 
 
@@ -69,6 +79,104 @@ def test_core_false_likely_interpretation_remains_likely_false() -> None:
     )
 
 
+def test_candidate_query_budget_varies_by_strictness() -> None:
+    search_plan = [
+        SearchPlanItemSchema(
+            claim_id="c1",
+            queries=[f"query {index}" for index in range(1, 10)],
+        )
+    ]
+
+    assert (
+        len(select_candidate_queries(search_plan, Strictness.STRICT, "fallback query"))
+        == 3
+    )
+    assert (
+        len(select_candidate_queries(search_plan, Strictness.BALANCED, "fallback query"))
+        == 5
+    )
+    assert (
+        len(select_candidate_queries(search_plan, Strictness.LOOSE, "fallback query"))
+        == 7
+    )
+
+
+def test_candidate_query_selection_deduplicates_with_stable_order() -> None:
+    search_plan = [
+        SearchPlanItemSchema(claim_id="c1", queries=["official", "github", "official"]),
+        SearchPlanItemSchema(claim_id="c2", queries=["github", "paper", "license"]),
+    ]
+
+    selected = select_candidate_queries(
+        search_plan,
+        Strictness.BALANCED,
+        "fallback query",
+    )
+
+    assert selected == ["official", "github", "paper", "license"]
+
+
+def test_candidate_query_selection_falls_back_to_original_query_when_plan_empty() -> None:
+    selected = select_candidate_queries([], Strictness.BALANCED, "original query")
+
+    assert selected == ["original query"]
+
+
+def test_provider_candidate_limit_expands_beyond_response_max_sources() -> None:
+    assert provider_candidate_limit(2) == 6
+    assert provider_candidate_limit(8) == 10
+
+
+def test_trusted_search_uses_expanded_candidate_pool_but_truncates_response_sources() -> None:
+    adapter = RecordingCandidateAdapter(
+        [
+            SearchResultSchema(
+                title=f"Candidate {index}",
+                url=f"https://example.com/candidate-{index}",
+                snippet="candidate snippet",
+            )
+            for index in range(1, 5)
+        ]
+    )
+
+    response = TrustedSearchService(search_adapter=adapter).search(
+        TrustedSearchRequest(
+            query="MiroThinker 1.7 是不是开源模型？",
+            max_sources=2,
+        )
+    )
+
+    assert adapter.max_total_results_values == [6]
+    assert adapter.max_results_per_query_values == [2]
+    assert len(adapter.queries_values[0]) == 5
+    assert len(response.sources) == 2
+    assert [source.title for source in response.sources] == ["Candidate 1", "Candidate 2"]
+
+
+def test_trusted_search_falls_back_to_original_query_when_search_plan_empty(monkeypatch) -> None:
+    adapter = RecordingCandidateAdapter(
+        [
+            SearchResultSchema(
+                title="Fallback query result",
+                url="https://example.com/fallback-query-result",
+                snippet="fallback snippet",
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        "app.services.trusted_search_service.build_search_plan",
+        lambda **kwargs: [],
+    )
+
+    response = TrustedSearchService(search_adapter=adapter).search(
+        TrustedSearchRequest(query="MiroThinker 1.7 是不是开源模型？")
+    )
+
+    assert adapter.queries_values == [["MiroThinker 1.7 是不是开源模型？"]]
+    assert response.search_plan == []
+    assert [source.title for source in response.sources] == ["Fallback query result"]
+
+
 def _claim(status: str, confidence: float, claim_type: str = "general_fact") -> ClaimSchema:
     return ClaimSchema(
         claim_id=f"c-{status}",
@@ -79,3 +187,22 @@ def _claim(status: str, confidence: float, claim_type: str = "general_fact") -> 
         reason="Reason.",
         evidence=[],
     )
+
+
+class RecordingCandidateAdapter:
+    def __init__(self, results: list[SearchResultSchema]) -> None:
+        self._results = results
+        self.queries_values: list[list[str]] = []
+        self.max_results_per_query_values: list[int] = []
+        self.max_total_results_values: list[int] = []
+
+    def search_many(
+        self,
+        queries: list[str],
+        max_results_per_query: int = 8,
+        max_total_results: int = 8,
+    ) -> SearchAdapterResponse:
+        self.queries_values.append(queries)
+        self.max_results_per_query_values.append(max_results_per_query)
+        self.max_total_results_values.append(max_total_results)
+        return SearchAdapterResponse(results=self._results[:max_total_results])

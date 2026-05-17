@@ -16,6 +16,14 @@ class SearchAdapter(Protocol):
     def search(self, query: str, max_results: int = 8) -> SearchAdapterResponse:
         """Return normalized search results without raising provider errors."""
 
+    def search_many(
+        self,
+        queries: list[str],
+        max_results_per_query: int = 8,
+        max_total_results: int = 8,
+    ) -> SearchAdapterResponse:
+        """Return deduplicated normalized search results for multiple queries."""
+
 
 class StaticSearchAdapter:
     def __init__(
@@ -46,6 +54,33 @@ class StaticSearchAdapter:
         del query
         deduplicated = deduplicate_search_results(self._results)
         return SearchAdapterResponse(results=deduplicated[:max_results])
+
+    def search_many(
+        self,
+        queries: list[str],
+        max_results_per_query: int = 8,
+        max_total_results: int = 8,
+    ) -> SearchAdapterResponse:
+        selected_queries = _deduplicate_strings([query for query in queries if query.strip()])
+        if not selected_queries:
+            return SearchAdapterResponse(results=[], error="no_queries")
+
+        collected: list[SearchResultSchema] = []
+        errors: list[str] = []
+        for query in selected_queries:
+            response = self.search(query, max_results=max_results_per_query)
+            if response.error:
+                errors.append(response.error)
+                continue
+            collected.extend(response.results)
+            collected = deduplicate_search_results(collected)
+            if len(collected) >= max_total_results:
+                break
+
+        deduplicated = deduplicate_search_results(collected)
+        if deduplicated:
+            return SearchAdapterResponse(results=deduplicated[:max_total_results])
+        return SearchAdapterResponse(results=[], error=errors[0] if errors else None)
 
 
 MockSearchAdapter = StaticSearchAdapter
@@ -81,6 +116,17 @@ def normalize_url(url: str) -> str:
             "",
         )
     )
+
+
+def _deduplicate_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduplicated: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        deduplicated.append(value)
+    return deduplicated
 
 
 def _default_static_results() -> list[SearchResultSchema]:
