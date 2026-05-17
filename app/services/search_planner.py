@@ -5,15 +5,6 @@ from app.schemas.source import SourceType
 from app.schemas.trusted_search import QuestionType, Strictness
 from app.services.claim_decomposer import ClaimDraft
 
-_AI_MODEL_QUERY_SUFFIXES = (
-    "Hugging Face",
-    "GitHub",
-    "paper",
-    "arXiv",
-    "license",
-    "official",
-)
-
 _AI_MODEL_PREFERRED_SOURCE_TYPES = (
     SourceType.OFFICIAL_MODEL_CARD,
     SourceType.SOURCE_CODE_REPO,
@@ -55,25 +46,127 @@ def _build_ai_model_search_plan(
     return [
         SearchPlanItemSchema(
             claim_id=claim.claim_id,
-            queries=_queries_for_claim(entity, claim),
+            queries=_queries_for_claim(entity, claim, strictness),
             preferred_source_types=preferred_source_types,
         )
         for claim in claims
     ]
 
 
-def _queries_for_claim(entity: str, claim: ClaimDraft) -> list[str]:
-    claim_specific_suffixes = {
-        "existence": ("Hugging Face", "official"),
-        "model_weights": ("Hugging Face", "GitHub", "official"),
-        "source_code": ("GitHub", "official"),
-        "training_data": ("paper", "arXiv", "official"),
-        "license": ("license", "Hugging Face", "GitHub"),
-        "interpretation": _AI_MODEL_QUERY_SUFFIXES,
-    }
-    suffixes = claim_specific_suffixes.get(claim.claim_type, _AI_MODEL_QUERY_SUFFIXES)
-    queries = [f"{entity} {suffix}" for suffix in suffixes]
+def _queries_for_claim(
+    entity: str,
+    claim: ClaimDraft,
+    strictness: Strictness,
+) -> list[str]:
+    quoted_entity = f'"{entity}"'
+    queries = _base_queries(entity, quoted_entity, strictness)
+    queries.extend(_claim_specific_queries(entity, quoted_entity, claim, strictness))
+    if strictness == Strictness.LOOSE:
+        queries.extend(_loose_queries(entity, quoted_entity))
     return _deduplicate_strings(queries)
+
+
+def _base_queries(entity: str, quoted_entity: str, strictness: Strictness) -> list[str]:
+    if strictness == Strictness.STRICT:
+        return [
+            quoted_entity,
+            f"{quoted_entity} official",
+            f"{entity} official",
+            f"{entity} official release",
+            f"{entity} site:huggingface.co",
+            f"{quoted_entity} site:huggingface.co",
+            f"{entity} site:github.com",
+            f"{quoted_entity} site:github.com",
+        ]
+
+    return [
+        entity,
+        quoted_entity,
+        f"{entity} official",
+        f"{entity} Hugging Face",
+        f"{entity} GitHub",
+        f"{entity} paper",
+        f"{entity} arXiv",
+    ]
+
+
+def _claim_specific_queries(
+    entity: str,
+    quoted_entity: str,
+    claim: ClaimDraft,
+    strictness: Strictness,
+) -> list[str]:
+    if claim.claim_type == "existence":
+        return [
+            f"{entity} official release",
+            f"{entity} model card",
+            f"{quoted_entity} model card",
+        ]
+    if claim.claim_type == "model_weights":
+        return [
+            f"{entity} Hugging Face",
+            f"{entity} site:huggingface.co",
+            f"{quoted_entity} site:huggingface.co",
+            f"{entity} model files",
+            f"{entity} weights model card",
+        ]
+    if claim.claim_type == "source_code":
+        return [
+            f"{entity} GitHub",
+            f"{entity} site:github.com",
+            f"{quoted_entity} site:github.com",
+            f"{entity} source code",
+            f"{entity} training code GitHub",
+        ]
+    if claim.claim_type == "training_data":
+        return [
+            f"{entity} paper",
+            f"{entity} arXiv",
+            f"{quoted_entity} paper",
+            f"{quoted_entity} arXiv",
+            f"{entity} technical report",
+        ]
+    if claim.claim_type == "license":
+        return [
+            f"{entity} license",
+            f"{quoted_entity} license",
+            f"{entity} commercial use",
+            f"{entity} license Hugging Face",
+            f"{entity} license GitHub",
+        ]
+    if claim.claim_type == "interpretation":
+        return [
+            f"{entity} license",
+            f"{quoted_entity} license",
+            f"{entity} model card",
+            f"{quoted_entity} model card",
+            f"{entity} commercial use",
+            f"{entity} open source",
+        ]
+
+    if strictness == Strictness.STRICT:
+        return [
+            f"{entity} arXiv",
+            f"{entity} paper",
+            f"{entity} license",
+            f"{quoted_entity} license",
+        ]
+
+    return [
+        f"{entity} license",
+        f"{quoted_entity} license",
+        f"{entity} model card",
+        f"{quoted_entity} model card",
+    ]
+
+
+def _loose_queries(entity: str, quoted_entity: str) -> list[str]:
+    return [
+        f"{entity} release",
+        f"{entity} announcement",
+        f"{entity} technical report",
+        f"{quoted_entity} release",
+    ]
 
 
 def _extract_entity_from_claims(query: str, claims: list[ClaimDraft]) -> str:
