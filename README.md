@@ -33,7 +33,9 @@ Critical Search Layer 不是搜索引擎，也不是大模型。
 
 ## 2. 当前开发阶段
 
-当前代码已形成 REST API first 的 mock 可信搜索闭环，并提供最小 MCP wrapper：
+当前阶段：`v0.2.3-tavily-real-world-eval`。
+
+在 v0.1 的 mock 可信搜索闭环之上，已经接入可选的真实搜索 provider，并基于真实样本评估开始修复质量瓶颈：
 
 ```text
 FastAPI 骨架
@@ -42,15 +44,21 @@ FastAPI 骨架
 Pydantic schemas
 TrustedSearchService 编排
 MCP trusted_search wrapper
+SearchProvider 抽象 + provider factory
+TavilyProvider（显式 opt-in，默认不启用）
+SearchPlanner 官方来源优先查询（ai_model_info）
+EvidenceExtractor 实体/版本错位降权（entity/version guard）
 ```
 
-当前不要做：
+真实搜索是 opt-in 的：默认 provider 仍为 `static`（mock），默认 `pytest` 不访问真实网络，API key 只能通过环境变量传入，不进仓库。详见 `docs/tavily_opt_in_usage.md`。
+
+当前仍不要做：
 
 ```text
-不接搜索 API
-不接 LLM
-不做数据库
+不接 LLM evidence extraction
+不做数据库 / 缓存
 不做前端
+不把 Tavily 设为默认 provider
 ```
 
 ---
@@ -92,6 +100,22 @@ critical_search_layer/
       search.py
     services/
       trusted_search_service.py
+      question_classifier.py
+      claim_decomposer.py
+      search_planner.py
+      search_adapter.py
+      search_provider.py
+      search_provider_factory.py
+      search_provider_normalizer.py
+      source_classifier.py
+      page_fetcher.py
+      evidence_extractor.py
+      reliability_scorer.py
+      claim_aggregator.py
+      conflict_detector.py
+      answer_constraint_builder.py
+      providers/
+        tavily_provider.py
     policies/
       source_policy.yml
     mcp/
@@ -99,6 +123,7 @@ critical_search_layer/
       tools.py
   tests/
     e2e/
+    integration/
     mcp/
     services/
 ```
@@ -153,7 +178,20 @@ Windows PowerShell：
 Copy-Item env.example .env
 ```
 
-当前 v0.1 MVP 只读取 `CSL_APP_NAME`、`CSL_APP_VERSION`、`CSL_ENVIRONMENT`、`CSL_LOG_LEVEL`。搜索、LLM、数据库和 Redis 配置项是未来接入预留，当前运行不会使用。真实 API Key 只能放在 `.env`，不能提交到 Git。
+基础运行读取 `CSL_APP_NAME`、`CSL_APP_VERSION`、`CSL_ENVIRONMENT`、`CSL_LOG_LEVEL`。
+
+搜索 provider 相关变量默认让系统保持在 mock / 离线状态，只有显式 opt-in 才会发起真实网络请求：
+
+```text
+CSL_SEARCH_PROVIDER=static        # 默认 static(mock)；设为 tavily 才启用真实 provider
+CSL_SEARCH_API_KEY=               # Tavily key，仅放 .env / 临时环境变量，禁止提交
+CSL_SEARCH_ALLOW_NETWORK=false    # 默认禁网；true 才允许真实出网
+CSL_SEARCH_TIMEOUT_SECONDS=8.0
+CSL_SEARCH_MAX_RESULTS_DEFAULT=8
+CSL_SEARCH_FALLBACK_TO_MOCK=true
+```
+
+LLM、数据库和 Redis 配置项仍是未来接入预留，当前运行不会使用。真实 API Key 只能放在 `.env` 或临时环境变量，不能提交到 Git。真实样本评估的 opt-in 步骤见 `docs/tavily_opt_in_usage.md` 与 `docs/evals/`。
 
 ---
 
@@ -210,7 +248,7 @@ conflicts
 answer_constraints
 ```
 
-注意：当前实现不调用真实搜索 API、不调用 LLM、不连接数据库。搜索和页面抓取默认使用 mock / fallback 行为，保证测试稳定。
+注意：默认配置下不调用真实搜索 API、不调用 LLM、不连接数据库，搜索和页面抓取使用 mock / fallback 行为，保证测试稳定。只有显式设置 `CSL_SEARCH_PROVIDER=tavily` 且 `CSL_SEARCH_ALLOW_NETWORK=true` 并提供 API key 时，才会经 TavilyProvider 发起真实搜索。
 
 ### MCP tool
 
@@ -309,6 +347,10 @@ v0.1.9-answer-constraints
 v0.1.10-e2e-mvp
 v0.1.11-conflict-detector
 v0.1.12-mcp-tool
+v0.2.0-search-provider-foundation
+v0.2.1-tavily-provider-opt-in
+v0.2.2-trusted-search-tavily-wiring
+v0.2.3-tavily-real-world-eval
 ```
 
 ---
@@ -333,12 +375,23 @@ query
   -> evidence package JSON
 ```
 
+在 v0.2 已追加：
+
+```text
+SearchProvider 抽象 + provider factory
+TavilyProvider（显式 opt-in，默认 static）
+trusted-search route 层 provider 接入
+SearchPlanner ai_model_info 官方来源优先查询
+EvidenceExtractor 实体/版本错位降权（entity/version guard）
+真实 Tavily 样本评估（docs/evals/）
+```
+
 当前仍不做：
 
 ```text
-真实搜索 provider
 真实 LLM evidence extraction
 数据库/缓存
 前端
 官方 MCP SDK runtime
+把 Tavily 设为默认 provider
 ```

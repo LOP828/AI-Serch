@@ -89,6 +89,45 @@ def test_support_type_and_relevance_score_are_valid() -> None:
     assert evidence[0].final_score is None
 
 
+def test_mismatched_model_version_is_downweighted() -> None:
+    matched = _extract(
+        claim=ClaimDraft("c2", "Llama 3.1 是否公开模型权重", "model_weights"),
+        text="Llama 3.1 weights are available in safetensors format.",
+    )
+    mismatched = _extract(
+        claim=ClaimDraft("c2", "Llama 3.1 是否公开模型权重", "model_weights"),
+        text="The LLaMA-13B weights are available in safetensors format.",
+    )
+
+    assert matched and mismatched
+    assert mismatched[0].relevance_score < matched[0].relevance_score
+    assert mismatched[0].relevance_score == round(matched[0].relevance_score * 0.4, 4)
+
+
+def test_version_absent_without_conflict_is_not_penalized() -> None:
+    with_version = _extract(
+        claim=ClaimDraft("c2", "Llama 3.1 是否公开模型权重", "model_weights"),
+        text="Llama 3.1 weights are available in safetensors format.",
+    )
+    version_omitted = _extract(
+        claim=ClaimDraft("c2", "Llama 3.1 是否公开模型权重", "model_weights"),
+        text="The model files and weights are available in safetensors format.",
+    )
+
+    assert with_version and version_omitted
+    assert version_omitted[0].relevance_score == with_version[0].relevance_score
+
+
+def test_guard_does_not_apply_to_general_fact_claims() -> None:
+    evidence = _extract(
+        claim=ClaimDraft("c1", "RTX 5070 Ti 是不是 16GB 显存 这一问题可以被外部来源验证", "general_fact"),
+        text="The RTX 5070 Ti 12GB variant uses GDDR7 memory.",
+    )
+
+    # general_fact claims fall back to query-term matching, not the version guard.
+    assert evidence == [] or evidence[0].relevance_score > 0.0
+
+
 def _extract(claim: ClaimDraft, text: str):
     page = PageFetchResultSchema(
         url="https://example.com/page",
