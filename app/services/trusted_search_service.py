@@ -1,4 +1,5 @@
 from math import ceil
+from urllib.parse import urlsplit
 
 from app.schemas.claim import ClaimSchema, ClaimStatus
 from app.schemas.conflict import ConflictSchema
@@ -100,6 +101,7 @@ class TrustedSearchService:
         ranked_results = rank_search_results(
             adapter_response.results,
             question_type=question_type,
+            query=request.query,
         )
         sources = search_results_to_sources(ranked_results[: request.max_sources])
         page_fetches = [self._safe_fetch_source(source) for source in sources]
@@ -216,18 +218,27 @@ def provider_candidate_limit(max_sources: int) -> int:
 def rank_search_results(
     results: list[SearchResultSchema],
     question_type: QuestionType,
+    query: str = "",
 ) -> list[SearchResultSchema]:
     priority_by_source_type = SOURCE_TYPE_PRIORITY_BY_QUESTION_TYPE.get(question_type, {})
 
-    def rank_key(indexed_result: tuple[int, SearchResultSchema]) -> tuple[int, int, float, int]:
+    def rank_key(
+        indexed_result: tuple[int, SearchResultSchema],
+    ) -> tuple[int, int, int, float, int]:
         index, result = indexed_result
         classification = classify_source(str(result.url))
+        entity_alignment_priority = entity_alignment_priority_for_result(
+            result=result,
+            question_type=question_type,
+            query=query,
+        )
         source_type_priority = priority_by_source_type.get(
             classification.source_type,
             DEFAULT_SOURCE_TYPE_PRIORITY,
         )
         primary_priority = 0 if classification.is_primary_source else 1
         return (
+            entity_alignment_priority,
             source_type_priority,
             primary_priority,
             -classification.base_reliability,
@@ -235,6 +246,38 @@ def rank_search_results(
         )
 
     return [result for _, result in sorted(enumerate(results), key=rank_key)]
+
+
+def entity_alignment_priority_for_result(
+    result: SearchResultSchema,
+    question_type: QuestionType,
+    query: str,
+) -> int:
+    if not is_openai_gpt_scope(query=query, question_type=question_type):
+        return 0
+
+    domain = _extract_domain(str(result.url))
+    if domain in {"openai.com", "platform.openai.com", "help.openai.com"}:
+        return 0
+    return 1
+
+
+def is_openai_gpt_scope(query: str, question_type: QuestionType) -> bool:
+    if question_type not in {QuestionType.AI_MODEL_INFO, QuestionType.TECH_NEWS}:
+        return False
+
+    normalized_query = query.lower()
+    return "openai" in normalized_query or "gpt" in normalized_query
+
+
+def _extract_domain(url: str) -> str:
+    netloc = urlsplit(url).netloc.lower()
+    if "@" in netloc:
+        netloc = netloc.rsplit("@", maxsplit=1)[1]
+    domain = netloc.split(":", maxsplit=1)[0]
+    if domain.startswith("www."):
+        return domain[4:]
+    return domain
 
 
 def derive_overall_status(

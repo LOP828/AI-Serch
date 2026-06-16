@@ -233,6 +233,108 @@ def test_source_ranking_keeps_final_sources_capped_after_candidate_expansion() -
     ]
 
 
+def test_openai_scope_prefers_openai_domain_over_non_openai_huggingface() -> None:
+    adapter = RecordingCandidateAdapter(
+        [
+            SearchResultSchema(
+                title="Third-party GPT-4.1 Hugging Face page",
+                url="https://huggingface.co/some-user/gpt-4.1",
+                snippet="third-party model card",
+            ),
+            SearchResultSchema(
+                title="OpenAI GPT-4.1 release notes",
+                url="https://openai.com/index/gpt-4-1/",
+                snippet="OpenAI release notes",
+            ),
+        ]
+    )
+
+    response = TrustedSearchService(search_adapter=adapter).search(
+        TrustedSearchRequest(
+            query="GPT-4.1 是否是 OpenAI 发布的模型？",
+            question_type=QuestionType.AI_MODEL_INFO,
+            max_sources=2,
+        )
+    )
+
+    assert [source.title for source in response.sources] == [
+        "OpenAI GPT-4.1 release notes",
+        "Third-party GPT-4.1 Hugging Face page",
+    ]
+
+
+def test_openai_scope_prefers_openai_domain_over_non_openai_github_repo() -> None:
+    adapter = RecordingCandidateAdapter(
+        [
+            SearchResultSchema(
+                title="Third-party GPT-4.1 GitHub repo",
+                url="https://github.com/some-user/gpt-4.1-notes",
+                snippet="third-party source repo",
+            ),
+            SearchResultSchema(
+                title="OpenAI API docs",
+                url="https://platform.openai.com/docs/models/gpt-4.1",
+                snippet="OpenAI API documentation",
+            ),
+        ]
+    )
+
+    response = TrustedSearchService(search_adapter=adapter).search(
+        TrustedSearchRequest(
+            query="GPT-4.1 是否是 OpenAI 发布的模型？",
+            question_type=QuestionType.AI_MODEL_INFO,
+            max_sources=2,
+        )
+    )
+
+    assert [source.title for source in response.sources] == [
+        "OpenAI API docs",
+        "Third-party GPT-4.1 GitHub repo",
+    ]
+
+
+def test_openai_scope_entity_alignment_runs_before_max_sources_truncation() -> None:
+    adapter = RecordingCandidateAdapter(
+        [
+            SearchResultSchema(
+                title="Third-party Hugging Face page",
+                url="https://huggingface.co/some-user/gpt-4.1",
+                snippet="third-party model card",
+            ),
+            SearchResultSchema(
+                title="Third-party GitHub repo",
+                url="https://github.com/some-user/gpt-4.1-notes",
+                snippet="third-party repo",
+            ),
+            SearchResultSchema(
+                title="Unknown article",
+                url="https://example.com/gpt-4.1",
+                snippet="unknown article",
+            ),
+            SearchResultSchema(
+                title="OpenAI official help article",
+                url="https://help.openai.com/en/articles/gpt-4-1",
+                snippet="OpenAI help article",
+            ),
+        ]
+    )
+
+    response = TrustedSearchService(search_adapter=adapter).search(
+        TrustedSearchRequest(
+            query="GPT-4.1 是否是 OpenAI 发布的模型？",
+            question_type=QuestionType.AI_MODEL_INFO,
+            max_sources=2,
+        )
+    )
+
+    assert adapter.max_total_results_values == [6]
+    assert len(response.sources) == 2
+    assert [source.title for source in response.sources] == [
+        "OpenAI official help article",
+        "Third-party Hugging Face page",
+    ]
+
+
 def test_source_ranking_preserves_provider_order_for_equal_scores() -> None:
     results = [
         SearchResultSchema(
@@ -250,6 +352,32 @@ def test_source_ranking_preserves_provider_order_for_equal_scores() -> None:
     ranked = rank_search_results(results, question_type=QuestionType.GENERAL_FACT)
 
     assert [result.title for result in ranked] == ["First unknown", "Second unknown"]
+
+
+def test_non_openai_general_fact_query_preserves_equal_score_order() -> None:
+    results = [
+        SearchResultSchema(
+            title="First same-score result",
+            url="https://example.com/first",
+            snippet="first",
+        ),
+        SearchResultSchema(
+            title="Second same-score result",
+            url="https://example.net/second",
+            snippet="second",
+        ),
+    ]
+
+    ranked = rank_search_results(
+        results,
+        question_type=QuestionType.GENERAL_FACT,
+        query="普通事实问题",
+    )
+
+    assert [result.title for result in ranked] == [
+        "First same-score result",
+        "Second same-score result",
+    ]
 
 
 def test_policy_legal_ranking_prioritizes_sec_source_over_media() -> None:
