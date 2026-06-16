@@ -90,7 +90,6 @@ def test_ai_model_search_plan_preserves_gpt_version_string() -> None:
     assert "GPT-4.1 official" in queries
     assert "site:openai.com GPT-4.1" in queries
     assert "site:platform.openai.com GPT-4.1 models" in queries
-    assert '"GPT-4.1" model card' in queries
     assert all("GPT-4 " not in query for query in queries)
 
 
@@ -154,8 +153,16 @@ def test_openai_gpt_queries_include_official_openai_site_queries_for_all_strictn
 
         assert "site:openai.com GPT-4.1" in queries
         assert "site:platform.openai.com GPT-4.1 models" in queries
-        assert "GPT-4.1 site:huggingface.co" in queries
-        assert "GPT-4.1 site:github.com" in queries
+
+
+def test_open_source_gpt_queries_keep_model_card_license_and_code_queries() -> None:
+    queries = _queries_for("GPT-4.1 是否开源？")
+
+    assert "GPT-4.1 Hugging Face" in queries
+    assert "GPT-4.1 GitHub" in queries
+    assert "GPT-4.1 model card" in queries
+    assert '"GPT-4.1" model card' in queries
+    assert "GPT-4.1 license" in queries
 
 
 def test_policy_legal_sec_bitcoin_spot_etf_query_includes_sec_official_queries() -> None:
