@@ -119,8 +119,9 @@ def test_version_absent_without_conflict_is_not_penalized() -> None:
 
 
 def test_guard_does_not_apply_to_general_fact_claims() -> None:
+    claim_text = "RTX 5070 Ti 是不是 16GB 显存 这一问题可以被外部来源验证"
     evidence = _extract(
-        claim=ClaimDraft("c1", "RTX 5070 Ti 是不是 16GB 显存 这一问题可以被外部来源验证", "general_fact"),
+        claim=ClaimDraft("c1", claim_text, "general_fact"),
         text="The RTX 5070 Ti 12GB variant uses GDDR7 memory.",
     )
 
