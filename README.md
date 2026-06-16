@@ -193,6 +193,30 @@ CSL_SEARCH_FALLBACK_TO_MOCK=true
 
 LLM、数据库和 Redis 配置项仍是未来接入预留，当前运行不会使用。真实 API Key 只能放在 `.env` 或临时环境变量，不能提交到 Git。真实样本评估的 opt-in 步骤见 `docs/tavily_opt_in_usage.md` 与 `docs/evals/`。
 
+### 手动 Tavily Eval Runner
+
+本地可以用脱敏 runner 复评 5 个 Tavily 样本。该脚本通过 FastAPI
+`/api/v1/trusted-search` 主链路运行，只输出 JSON 摘要到 stdout，不保存 raw
+provider payload、不打印 API key、不输出完整网页正文。
+
+PowerShell 示例：
+
+```powershell
+$secureKey = Read-Host "Enter Tavily API key for this shell only" -AsSecureString
+$plainKey = [System.Net.NetworkCredential]::new("", $secureKey).Password
+$env:CSL_SEARCH_API_KEY = $plainKey
+Remove-Variable plainKey
+Remove-Variable secureKey
+
+$env:CSL_SEARCH_PROVIDER = "tavily"
+$env:CSL_SEARCH_ALLOW_NETWORK = "true"
+$env:CSL_RUN_INTEGRATION_TESTS = "true"
+
+uv run python scripts/manual_tavily_eval.py
+```
+
+不要提交真实 API key，也不要把 Tavily 设为默认 provider。
+
 ---
 
 ## 6. 核心接口
