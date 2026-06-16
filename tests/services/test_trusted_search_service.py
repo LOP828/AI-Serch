@@ -12,6 +12,7 @@ from app.services.trusted_search_service import (
     derive_overall_confidence,
     derive_overall_status,
     provider_candidate_limit,
+    rank_search_results,
     select_candidate_queries,
 )
 
@@ -151,6 +152,154 @@ def test_trusted_search_uses_expanded_candidate_pool_but_truncates_response_sour
     assert len(adapter.queries_values[0]) == 5
     assert len(response.sources) == 2
     assert [source.title for source in response.sources] == ["Candidate 1", "Candidate 2"]
+
+
+def test_source_ranking_keeps_official_source_when_provider_returns_it_late() -> None:
+    adapter = RecordingCandidateAdapter(
+        [
+            SearchResultSchema(
+                title="Community first",
+                url="https://www.zhihu.com/question/123",
+                snippet="community discussion",
+            ),
+            SearchResultSchema(
+                title="Unknown second",
+                url="https://example.com/model-writeup",
+                snippet="unknown source",
+            ),
+            SearchResultSchema(
+                title="Official model card late",
+                url="https://huggingface.co/example/model",
+                snippet="official model card",
+            ),
+        ]
+    )
+
+    response = TrustedSearchService(search_adapter=adapter).search(
+        TrustedSearchRequest(
+            query="MiroThinker 1.7 是不是开源模型？",
+            question_type=QuestionType.AI_MODEL_INFO,
+            max_sources=2,
+        )
+    )
+
+    assert adapter.max_total_results_values == [6]
+    assert len(response.sources) == 2
+    assert [source.title for source in response.sources] == [
+        "Official model card late",
+        "Community first",
+    ]
+
+
+def test_source_ranking_keeps_final_sources_capped_after_candidate_expansion() -> None:
+    adapter = RecordingCandidateAdapter(
+        [
+            SearchResultSchema(
+                title="Community first",
+                url="https://www.reddit.com/r/models/comments/1",
+                snippet="community discussion",
+            ),
+            SearchResultSchema(
+                title="Unknown second",
+                url="https://example.com/model",
+                snippet="unknown source",
+            ),
+            SearchResultSchema(
+                title="Official model card third",
+                url="https://huggingface.co/example/model",
+                snippet="official model card",
+            ),
+            SearchResultSchema(
+                title="Source repo fourth",
+                url="https://github.com/example/model",
+                snippet="source repository",
+            ),
+        ]
+    )
+
+    response = TrustedSearchService(search_adapter=adapter).search(
+        TrustedSearchRequest(
+            query="MiroThinker 1.7 是不是开源模型？",
+            question_type=QuestionType.AI_MODEL_INFO,
+            max_sources=2,
+        )
+    )
+
+    assert adapter.max_total_results_values == [6]
+    assert len(response.sources) == 2
+    assert [source.title for source in response.sources] == [
+        "Official model card third",
+        "Source repo fourth",
+    ]
+
+
+def test_source_ranking_preserves_provider_order_for_equal_scores() -> None:
+    results = [
+        SearchResultSchema(
+            title="First unknown",
+            url="https://example.com/first",
+            snippet="first",
+        ),
+        SearchResultSchema(
+            title="Second unknown",
+            url="https://example.net/second",
+            snippet="second",
+        ),
+    ]
+
+    ranked = rank_search_results(results, question_type=QuestionType.GENERAL_FACT)
+
+    assert [result.title for result in ranked] == ["First unknown", "Second unknown"]
+
+
+def test_policy_legal_ranking_prioritizes_sec_source_over_media() -> None:
+    adapter = RecordingCandidateAdapter(
+        [
+            SearchResultSchema(
+                title="Media report first",
+                url="https://finance.example.com/sec-bitcoin-etf",
+                snippet="media report",
+            ),
+            SearchResultSchema(
+                title="SEC approval order second",
+                url="https://www.sec.gov/rules/sro/nysearca/2024/34-99306.pdf",
+                snippet="SEC approval order",
+            ),
+            SearchResultSchema(
+                title="Another media report third",
+                url="https://news.example.com/bitcoin-etf",
+                snippet="another media report",
+            ),
+        ]
+    )
+
+    response = TrustedSearchService(search_adapter=adapter).search(
+        TrustedSearchRequest(
+            query="美国 SEC 是否发布过关于比特币现货 ETF 的批准公告？",
+            question_type=QuestionType.POLICY_LEGAL,
+            max_sources=2,
+        )
+    )
+
+    assert [source.title for source in response.sources] == [
+        "SEC approval order second",
+        "Media report first",
+    ]
+    assert response.sources[0].domain == "sec.gov"
+
+
+def test_default_static_trusted_search_sources_remain_stable() -> None:
+    response = TrustedSearchService().search(
+        TrustedSearchRequest(
+            query="MiroThinker 1.7 是不是开源模型？",
+            max_sources=2,
+        )
+    )
+
+    assert [source.title for source in response.sources] == [
+        "MiroThinker-1.7 - Hugging Face",
+        "MiroThinker GitHub repository",
+    ]
 
 
 def test_trusted_search_falls_back_to_original_query_when_search_plan_empty(monkeypatch) -> None:

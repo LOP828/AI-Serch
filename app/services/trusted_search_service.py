@@ -4,7 +4,8 @@ from app.schemas.claim import ClaimSchema, ClaimStatus
 from app.schemas.conflict import ConflictSchema
 from app.schemas.evidence import EvidenceSchema
 from app.schemas.page import PageFetchResultSchema
-from app.schemas.search import SearchPlanItemSchema
+from app.schemas.search import SearchPlanItemSchema, SearchResultSchema
+from app.schemas.source import SourceType
 from app.schemas.trusted_search import (
     OverallStatus,
     QuestionType,
@@ -26,7 +27,7 @@ from app.services.question_classifier import classify_question, risk_for_questio
 from app.services.reliability_scorer import ReliabilityScorer
 from app.services.search_adapter import SearchAdapter, StaticSearchAdapter
 from app.services.search_planner import build_search_plan
-from app.services.source_classifier import search_results_to_sources
+from app.services.source_classifier import classify_source, search_results_to_sources
 
 QUERY_BUDGET_BY_STRICTNESS = {
     Strictness.STRICT: 3,
@@ -34,6 +35,26 @@ QUERY_BUDGET_BY_STRICTNESS = {
     Strictness.LOOSE: 7,
 }
 MAX_PROVIDER_CANDIDATES = 10
+SOURCE_TYPE_PRIORITY_BY_QUESTION_TYPE = {
+    QuestionType.AI_MODEL_INFO: {
+        SourceType.OFFICIAL_MODEL_CARD: 0,
+        SourceType.SOURCE_CODE_REPO: 1,
+        SourceType.ACADEMIC_PAPER: 2,
+        SourceType.OFFICIAL_DOCS: 3,
+        SourceType.OFFICIAL_BLOG: 4,
+    },
+    QuestionType.POLICY_LEGAL: {
+        SourceType.GOVERNMENT_DOCS: 0,
+        SourceType.FINANCIAL_FILING: 1,
+        SourceType.OFFICIAL_DOCS: 2,
+    },
+    QuestionType.PRODUCT_INFO: {
+        SourceType.PRODUCT_PAGE: 0,
+        SourceType.OFFICIAL_DOCS: 1,
+        SourceType.MAINSTREAM_MEDIA: 2,
+    },
+}
+DEFAULT_SOURCE_TYPE_PRIORITY = 100
 
 
 class TrustedSearchService:
@@ -76,7 +97,11 @@ class TrustedSearchService:
             strictness=request.strictness,
             max_sources=request.max_sources,
         )
-        sources = search_results_to_sources(adapter_response.results[: request.max_sources])
+        ranked_results = rank_search_results(
+            adapter_response.results,
+            question_type=question_type,
+        )
+        sources = search_results_to_sources(ranked_results[: request.max_sources])
         page_fetches = [self._safe_fetch_source(source) for source in sources]
         evidence_by_claim_id = extract_evidence_for_claims(
             claims=claim_drafts,
@@ -186,6 +211,30 @@ def select_candidate_queries(
 
 def provider_candidate_limit(max_sources: int) -> int:
     return min(max(max_sources * 3, max_sources), MAX_PROVIDER_CANDIDATES)
+
+
+def rank_search_results(
+    results: list[SearchResultSchema],
+    question_type: QuestionType,
+) -> list[SearchResultSchema]:
+    priority_by_source_type = SOURCE_TYPE_PRIORITY_BY_QUESTION_TYPE.get(question_type, {})
+
+    def rank_key(indexed_result: tuple[int, SearchResultSchema]) -> tuple[int, int, float, int]:
+        index, result = indexed_result
+        classification = classify_source(str(result.url))
+        source_type_priority = priority_by_source_type.get(
+            classification.source_type,
+            DEFAULT_SOURCE_TYPE_PRIORITY,
+        )
+        primary_priority = 0 if classification.is_primary_source else 1
+        return (
+            source_type_priority,
+            primary_priority,
+            -classification.base_reliability,
+            index,
+        )
+
+    return [result for _, result in sorted(enumerate(results), key=rank_key)]
 
 
 def derive_overall_status(
