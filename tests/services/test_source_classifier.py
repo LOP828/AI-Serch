@@ -31,11 +31,51 @@ def test_arxiv_classifies_as_academic_paper() -> None:
     assert result.is_primary_source is True
 
 
-def test_sec_classifies_as_financial_filing() -> None:
+def test_openai_classifies_as_official_source() -> None:
+    result = classify_source("https://openai.com/index/gpt-4-1/")
+
+    assert result.source_type == SourceType.OFFICIAL_DOCS
+    assert result.base_reliability == 0.95
+    assert result.is_primary_source is True
+
+
+def test_platform_openai_classifies_as_official_source() -> None:
+    result = classify_source("https://platform.openai.com/docs/models/gpt-4.1")
+
+    assert result.source_type == SourceType.OFFICIAL_DOCS
+    assert result.base_reliability == 0.95
+    assert result.is_primary_source is True
+
+
+def test_help_openai_classifies_as_official_source() -> None:
+    result = classify_source("https://help.openai.com/en/articles/gpt-4-1")
+
+    assert result.source_type == SourceType.OFFICIAL_DOCS
+    assert result.base_reliability == 0.95
+    assert result.is_primary_source is True
+
+
+def test_sec_classifies_as_government_docs() -> None:
     result = classify_source("https://www.sec.gov/ixviewer/doc/action")
 
-    assert result.source_type == SourceType.FINANCIAL_FILING
+    assert result.source_type == SourceType.GOVERNMENT_DOCS
     assert result.base_reliability == 0.95
+    assert result.is_primary_source is True
+
+
+def test_nvidia_classifies_as_official_product_source() -> None:
+    result = classify_source("https://www.nvidia.com/en-us/geforce/graphics-cards/50-series/")
+
+    assert result.source_type == SourceType.PRODUCT_PAGE
+    assert result.base_reliability == 0.80
+    assert result.is_primary_source is True
+
+
+def test_board_partner_classifies_as_official_product_source() -> None:
+    result = classify_source("https://www.asus.com/motherboards-components/graphics-cards/")
+
+    assert result.source_type == SourceType.PRODUCT_PAGE
+    assert result.base_reliability == 0.80
     assert result.is_primary_source is True
 
 

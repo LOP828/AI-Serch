@@ -16,6 +16,26 @@ _PRIMARY_SOURCE_TYPES = {
     SourceType.ACADEMIC_PAPER,
     SourceType.GOVERNMENT_DOCS,
     SourceType.FINANCIAL_FILING,
+    SourceType.PRODUCT_PAGE,
+}
+
+_OPENAI_OFFICIAL_DOMAINS = {
+    "openai.com",
+    "platform.openai.com",
+    "help.openai.com",
+}
+
+_PRODUCT_OFFICIAL_DOMAINS = {
+    "nvidia.com",
+    "asus.com",
+    "msi.com",
+    "gigabyte.com",
+    "zotac.com",
+    "pny.com",
+    "galax.com",
+    "colorful.cn",
+    "inno3d.com",
+    "palit.com",
 }
 
 
@@ -42,6 +62,18 @@ def classify_source_type(url: str, domain: str | None = None) -> SourceType:
     normalized_url = url.lower()
     normalized_domain = domain or extract_domain(url)
 
+    if any(
+        _domain_matches(normalized_domain, official_domain)
+        for official_domain in _OPENAI_OFFICIAL_DOMAINS
+    ):
+        return SourceType.OFFICIAL_DOCS
+    if _domain_matches(normalized_domain, "sec.gov"):
+        return SourceType.GOVERNMENT_DOCS
+    if any(
+        _domain_matches(normalized_domain, product_domain)
+        for product_domain in _PRODUCT_OFFICIAL_DOMAINS
+    ):
+        return SourceType.PRODUCT_PAGE
     if _domain_matches(normalized_domain, "huggingface.co"):
         return SourceType.OFFICIAL_MODEL_CARD
     if _domain_matches(normalized_domain, "modelscope.cn"):
@@ -54,8 +86,6 @@ def classify_source_type(url: str, domain: str | None = None) -> SourceType:
         return SourceType.ACADEMIC_PAPER
     if _domain_matches(normalized_domain, "openreview.net"):
         return SourceType.ACADEMIC_PAPER
-    if _domain_matches(normalized_domain, "sec.gov"):
-        return SourceType.FINANCIAL_FILING
     if normalized_domain.endswith(".gov") or normalized_domain == "gov":
         return SourceType.GOVERNMENT_DOCS
     if normalized_domain.startswith("docs.") or "/docs/" in normalized_url:
