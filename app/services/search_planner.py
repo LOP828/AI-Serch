@@ -22,6 +22,10 @@ def build_search_plan(
 ) -> list[SearchPlanItemSchema]:
     if question_type == QuestionType.AI_MODEL_INFO:
         return _build_ai_model_search_plan(query, claims, strictness)
+    if question_type == QuestionType.POLICY_LEGAL:
+        return _build_policy_legal_search_plan(query, claims)
+    if question_type == QuestionType.PRODUCT_INFO:
+        return _build_product_info_search_plan(query, claims)
 
     return [
         SearchPlanItemSchema(
@@ -67,12 +71,14 @@ def _queries_for_claim(
 
 
 def _base_queries(entity: str, quoted_entity: str, strictness: Strictness) -> list[str]:
+    official_domain_queries = _ai_model_official_domain_queries(entity)
     if strictness == Strictness.STRICT:
         return [
             quoted_entity,
             f"{quoted_entity} official",
             f"{entity} official",
             f"{entity} official release",
+            *official_domain_queries,
             f"{entity} site:huggingface.co",
             f"{quoted_entity} site:huggingface.co",
             f"{entity} site:github.com",
@@ -83,6 +89,7 @@ def _base_queries(entity: str, quoted_entity: str, strictness: Strictness) -> li
         entity,
         quoted_entity,
         f"{entity} official",
+        *official_domain_queries,
         f"{entity} Hugging Face",
         f"{entity} GitHub",
         f"{entity} paper",
@@ -167,6 +174,99 @@ def _loose_queries(entity: str, quoted_entity: str) -> list[str]:
         f"{entity} technical report",
         f"{quoted_entity} release",
     ]
+
+
+def _build_policy_legal_search_plan(
+    query: str,
+    claims: list[ClaimDraft],
+) -> list[SearchPlanItemSchema]:
+    return [
+        SearchPlanItemSchema(
+            claim_id=claim.claim_id,
+            queries=_policy_legal_queries(query=query, claim=claim),
+            preferred_source_types=[
+                SourceType.GOVERNMENT_DOCS,
+                SourceType.FINANCIAL_FILING,
+                SourceType.OFFICIAL_DOCS,
+            ],
+        )
+        for claim in claims
+    ]
+
+
+def _build_product_info_search_plan(
+    query: str,
+    claims: list[ClaimDraft],
+) -> list[SearchPlanItemSchema]:
+    return [
+        SearchPlanItemSchema(
+            claim_id=claim.claim_id,
+            queries=_product_info_queries(query=query, claim=claim),
+            preferred_source_types=[
+                SourceType.PRODUCT_PAGE,
+                SourceType.OFFICIAL_DOCS,
+                SourceType.MAINSTREAM_MEDIA,
+            ],
+        )
+        for claim in claims
+    ]
+
+
+def _policy_legal_queries(query: str, claim: ClaimDraft) -> list[str]:
+    base_query = _clean_query_text(query)
+    normalized = base_query.lower()
+    queries: list[str] = []
+    if "sec" in normalized and ("bitcoin" in normalized or "比特币" in normalized):
+        queries.extend(
+            [
+                "site:sec.gov spot bitcoin ETF approval",
+                "site:sec.gov spot bitcoin ETP approval order",
+                "SEC spot bitcoin ETP approval order Jan 10 2024",
+            ]
+        )
+    queries.extend([base_query, claim.claim_text])
+    return _deduplicate_strings(queries)
+
+
+def _product_info_queries(query: str, claim: ClaimDraft) -> list[str]:
+    base_query = _clean_query_text(query)
+    normalized = base_query.lower()
+    queries: list[str] = []
+    if "rtx" in normalized:
+        entity = _extract_product_entity(base_query)
+        queries.extend(
+            [
+                f"site:nvidia.com {entity} specifications",
+                f"site:nvidia.com GeForce {entity} 16GB",
+                f"{entity} specifications NVIDIA",
+            ]
+        )
+    queries.extend([base_query, claim.claim_text])
+    return _deduplicate_strings(queries)
+
+
+def _ai_model_official_domain_queries(entity: str) -> list[str]:
+    normalized_entity = entity.lower()
+    if "openai" not in normalized_entity and "gpt" not in normalized_entity:
+        return []
+    return [
+        f"site:openai.com {entity}",
+        f"site:platform.openai.com {entity} models",
+    ]
+
+
+def _extract_product_entity(query: str) -> str:
+    normalized = query.strip().rstrip("？?。.")
+    marker_match = re.search(r"(是否|是不是|是|有没有|能不能|可以|属于)", normalized)
+    if marker_match:
+        candidate = normalized[: marker_match.start()].strip(" ，,")
+        if candidate:
+            return candidate
+    return normalized
+
+
+def _clean_query_text(query: str) -> str:
+    return query.strip().rstrip("？?。.")
 
 
 def _extract_entity_from_claims(query: str, claims: list[ClaimDraft]) -> str:

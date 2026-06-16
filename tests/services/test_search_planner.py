@@ -16,6 +16,21 @@ def _queries_for(query: str, strictness: Strictness = Strictness.BALANCED) -> li
     return [query for item in search_plan for query in item.queries]
 
 
+def _queries_for_type(
+    query: str,
+    question_type: QuestionType,
+    strictness: Strictness = Strictness.BALANCED,
+) -> list[str]:
+    claims = decompose_claims(query, question_type)
+    search_plan = build_search_plan(
+        query=query,
+        question_type=question_type,
+        claims=claims,
+        strictness=strictness,
+    )
+    return [query for item in search_plan for query in item.queries]
+
+
 def test_ai_model_search_plan_contains_expected_query_templates() -> None:
     claims = decompose_claims("MiroThinker 1.7 是不是开源模型？", QuestionType.AI_MODEL_INFO)
 
@@ -73,6 +88,8 @@ def test_ai_model_search_plan_preserves_gpt_version_string() -> None:
     assert "GPT-4.1" in queries
     assert '"GPT-4.1"' in queries
     assert "GPT-4.1 official" in queries
+    assert "site:openai.com GPT-4.1" in queries
+    assert "site:platform.openai.com GPT-4.1 models" in queries
     assert '"GPT-4.1" model card' in queries
     assert all("GPT-4 " not in query for query in queries)
 
@@ -84,6 +101,9 @@ def test_ai_model_search_plan_preserves_llama_version_string() -> None:
     assert '"Llama 3.1"' in queries
     assert "Llama 3.1 Hugging Face" in queries
     assert '"Llama 3.1" license' in queries
+    assert "Llama 3.1 GitHub" in queries
+    assert "Llama 3.1 arXiv" in queries
+    assert "Llama 3.1 model card" in queries
 
 
 def test_ai_model_search_plan_preserves_mirothinker_version_string() -> None:
@@ -126,6 +146,38 @@ def test_loose_ai_model_plan_keeps_official_queries_and_adds_broader_queries() -
     assert "MiroThinker 1.7 release" in queries
     assert "MiroThinker 1.7 announcement" in queries
     assert "MiroThinker 1.7 technical report" in queries
+
+
+def test_openai_gpt_queries_include_official_openai_site_queries_for_all_strictness() -> None:
+    for strictness in (Strictness.STRICT, Strictness.BALANCED, Strictness.LOOSE):
+        queries = _queries_for("GPT-4.1 是否是 OpenAI 发布的模型？", strictness)
+
+        assert "site:openai.com GPT-4.1" in queries
+        assert "site:platform.openai.com GPT-4.1 models" in queries
+        assert "GPT-4.1 site:huggingface.co" in queries
+        assert "GPT-4.1 site:github.com" in queries
+
+
+def test_policy_legal_sec_bitcoin_spot_etf_query_includes_sec_official_queries() -> None:
+    queries = _queries_for_type(
+        "美国 SEC 是否发布过关于比特币现货 ETF 的批准公告？",
+        QuestionType.POLICY_LEGAL,
+    )
+
+    assert "site:sec.gov spot bitcoin ETF approval" in queries
+    assert "site:sec.gov spot bitcoin ETP approval order" in queries
+    assert "SEC spot bitcoin ETP approval order Jan 10 2024" in queries
+
+
+def test_product_info_rtx_query_includes_nvidia_official_spec_queries() -> None:
+    queries = _queries_for_type(
+        "RTX 5070 Ti 是否是 16GB 显存？",
+        QuestionType.PRODUCT_INFO,
+    )
+
+    assert "site:nvidia.com RTX 5070 Ti specifications" in queries
+    assert "site:nvidia.com GeForce RTX 5070 Ti 16GB" in queries
+    assert "RTX 5070 Ti specifications NVIDIA" in queries
 
 
 def test_ai_model_preferred_source_types_prioritize_primary_sources() -> None:
