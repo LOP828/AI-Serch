@@ -31,6 +31,12 @@ ENTITY_VERSION_MISMATCH_FACTOR = 0.4
 # A version-ish token: dotted versions (3.1, 4.1, 2.5) or parameter sizes (7B, 13B).
 _VERSION_TOKEN_PATTERN = re.compile(r"\d+\.\d+(?:\.\d+)*|\d+\s?b\b")
 _CLAIM_MARKER_PATTERN = re.compile(r"是不是|是否|是|有没有|能不能|可以|属于|的")
+_RTX_MODEL_PATTERN = re.compile(
+    r"\brtx\s+\d{4}(?:\s+(?:ti|super|laptop))?\b",
+    re.IGNORECASE,
+)
+_MEMORY_VALUE_PATTERN = re.compile(r"\b(\d{1,3})\s*(?:gb|g)\b", re.IGNORECASE)
+_MEMORY_SPEC_TERMS = ("显存", "vram", "memory size", "graphics memory")
 
 _NEGATION_TERMS = (
     " not ",
@@ -113,6 +119,10 @@ class EvidenceExtractorProtocol(Protocol):
 
 class RuleBasedEvidenceExtractor:
     def extract(self, request: EvidenceExtractionRequest) -> list[EvidenceSchema]:
+        product_spec_evidence = _extract_product_memory_spec_evidence(request)
+        if product_spec_evidence is not None:
+            return product_spec_evidence
+
         sentences = split_sentences(request.page_fetch_result.text)
         matched_sentences = self._match_sentences(request.claim, sentences)
         if not matched_sentences:
@@ -185,6 +195,104 @@ def infer_support_type(claim_type: str, evidence_text: str) -> SupportType:
     ):
         return SupportType.PARTIAL
     return SupportType.SUPPORT
+
+
+def _extract_product_memory_spec_evidence(
+    request: EvidenceExtractionRequest,
+) -> list[EvidenceSchema] | None:
+    spec = _product_memory_spec_from_claim(request.claim.claim_text)
+    if spec is None:
+        return None
+
+    matched: list[tuple[str, SupportType]] = []
+    for sentence in split_sentences(request.page_fetch_result.text):
+        support_type = _product_memory_sentence_support_type(sentence, spec)
+        if support_type is not None:
+            matched.append((sentence, support_type))
+
+    if not matched:
+        return []
+
+    support_type = (
+        SupportType.SUPPORT
+        if any(item_support_type == SupportType.SUPPORT for _, item_support_type in matched)
+        else SupportType.OPPOSE
+    )
+    evidence_text = " ".join(sentence for sentence, _ in matched[:MAX_EVIDENCE_SENTENCES]).strip()
+    relevance_score = relevance_score_for(support_type, len(matched))
+    return [
+        EvidenceSchema(
+            evidence_id=f"ev-{request.claim.claim_id}-{request.source_id}-1",
+            claim_id=request.claim.claim_id,
+            source_id=request.source_id,
+            evidence_text=evidence_text,
+            support_type=support_type,
+            relevance_score=round(relevance_score, 4),
+        )
+    ]
+
+
+@dataclass(frozen=True)
+class _ProductMemorySpec:
+    model: str
+    memory_gb: int
+
+
+def _product_memory_spec_from_claim(claim_text: str) -> _ProductMemorySpec | None:
+    normalized = _normalize_product_spec_text(claim_text)
+    if not any(term in normalized for term in _MEMORY_SPEC_TERMS):
+        return None
+
+    model = _first_rtx_model(normalized)
+    memory_gb = _first_memory_value_gb(normalized)
+    if model is None or memory_gb is None:
+        return None
+    return _ProductMemorySpec(model=model, memory_gb=memory_gb)
+
+
+def _product_memory_sentence_support_type(
+    sentence: str,
+    spec: _ProductMemorySpec,
+) -> SupportType | None:
+    normalized = _normalize_product_spec_text(sentence)
+    if not _contains_exact_product_model(normalized, spec.model):
+        return None
+
+    memory_values = _memory_values_gb(normalized)
+    if not memory_values:
+        return None
+    if spec.memory_gb in memory_values:
+        return SupportType.SUPPORT
+    return SupportType.OPPOSE
+
+
+def _normalize_product_spec_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text.lower().replace("-", " ")).strip()
+
+
+def _first_rtx_model(text: str) -> str | None:
+    models = _rtx_models(text)
+    return models[0] if models else None
+
+
+def _first_memory_value_gb(text: str) -> int | None:
+    values = _memory_values_gb(text)
+    return values[0] if values else None
+
+
+def _memory_values_gb(text: str) -> list[int]:
+    return [int(match.group(1)) for match in _MEMORY_VALUE_PATTERN.finditer(text)]
+
+
+def _contains_exact_product_model(text: str, model: str) -> bool:
+    return model in _rtx_models(text)
+
+
+def _rtx_models(text: str) -> list[str]:
+    return [
+        re.sub(r"\s+", " ", match.group(0).lower()).strip()
+        for match in _RTX_MODEL_PATTERN.finditer(text)
+    ]
 
 
 def relevance_score_for(support_type: SupportType, matched_sentence_count: int) -> float:

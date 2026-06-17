@@ -118,15 +118,75 @@ def test_version_absent_without_conflict_is_not_penalized() -> None:
     assert version_omitted[0].relevance_score == with_version[0].relevance_score
 
 
-def test_guard_does_not_apply_to_general_fact_claims() -> None:
+def test_product_memory_spec_general_fact_claim_returns_relevant_evidence() -> None:
     claim_text = "RTX 5070 Ti 是不是 16GB 显存 这一问题可以被外部来源验证"
     evidence = _extract(
         claim=ClaimDraft("c1", claim_text, "general_fact"),
         text="The RTX 5070 Ti 12GB variant uses GDDR7 memory.",
     )
 
-    # general_fact claims fall back to query-term matching, not the version guard.
-    assert evidence == [] or evidence[0].relevance_score > 0.0
+    assert len(evidence) == 1
+    assert evidence[0].support_type == SupportType.OPPOSE
+
+
+def test_rtx_5070_ti_16g_supports_16gb_memory_claim() -> None:
+    evidence = _extract(
+        claim=ClaimDraft("c1", "RTX 5070 Ti 是否是 16GB 显存？", "general_fact"),
+        text="PC Specifications GPU: MSI GeForce RTX 5070 Ti 16G Ventus 3X OC.",
+    )
+
+    assert len(evidence) == 1
+    assert evidence[0].support_type == SupportType.SUPPORT
+
+
+def test_rtx_5070_ti_16gb_supports_16gb_memory_claim() -> None:
+    evidence = _extract(
+        claim=ClaimDraft("c1", "RTX 5070 Ti 是否是 16GB 显存？", "general_fact"),
+        text="My system specs: GPU: MSI GeForce RTX 5070 Ti 16GB.",
+    )
+
+    assert len(evidence) == 1
+    assert evidence[0].support_type == SupportType.SUPPORT
+
+
+def test_rtx_5070_16gb_does_not_support_rtx_5070_ti_memory_claim() -> None:
+    evidence = _extract(
+        claim=ClaimDraft("c1", "RTX 5070 Ti 是否是 16GB 显存？", "general_fact"),
+        text="The GeForce RTX 5070 16GB card is listed with GDDR7 memory.",
+    )
+
+    assert evidence == []
+
+
+def test_rtx_5080_16gb_does_not_support_rtx_5070_ti_memory_claim() -> None:
+    evidence = _extract(
+        claim=ClaimDraft("c1", "RTX 5070 Ti 是否是 16GB 显存？", "general_fact"),
+        text="The GeForce RTX 5080 16GB card is listed with GDDR7 memory.",
+    )
+
+    assert evidence == []
+
+
+def test_rtx_5070_ti_12gb_opposes_16gb_memory_claim() -> None:
+    evidence = _extract(
+        claim=ClaimDraft("c1", "RTX 5070 Ti 是否是 16GB 显存？", "general_fact"),
+        text="The GeForce RTX 5070 Ti 12GB variant uses GDDR7 memory.",
+    )
+
+    assert len(evidence) == 1
+    assert evidence[0].support_type == SupportType.OPPOSE
+
+
+def test_other_model_memory_values_do_not_oppose_rtx_5070_ti_memory_claim() -> None:
+    evidence = _extract(
+        claim=ClaimDraft("c1", "RTX 5070 Ti 是否是 16GB 显存？", "general_fact"),
+        text=(
+            "The GeForce RTX 5070 12GB card is listed with GDDR7 memory. "
+            "The GeForce RTX 5080 24GB card is listed with GDDR7 memory."
+        ),
+    )
+
+    assert evidence == []
 
 
 def _extract(claim: ClaimDraft, text: str):
